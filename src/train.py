@@ -21,8 +21,8 @@ def train_model():
     y_train_tensor = torch.randn(100, 1)
 
 
-    mlflow.set_tracking_uri("http://127.0.0.1:8000")
-
+    mlflow.set_tracking_uri("http://mlflow:5000")
+ 
     with mlflow.start_run():
         print("Iniciando run do MLflow...")
         
@@ -32,16 +32,16 @@ def train_model():
         N_LAYERS = 2
         LEARNING_RATE = 0.001
         EPOCHS = 10
-
+ 
         mlflow.log_param("hidden_size", HIDDEN_SIZE)
         mlflow.log_param("num_layers", N_LAYERS)
         mlflow.log_param("learning_rate", LEARNING_RATE)
         mlflow.log_param("epochs", EPOCHS)
-
+ 
         model = CovidPredictorLSTM(n_features=N_FEATURES, hidden_size=HIDDEN_SIZE, n_layers=N_LAYERS)
         criterion = torch.nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
+ 
         print("Iniciando o loop de treinamento...")
         for epoch in range(EPOCHS):
             outputs = model(X_train_tensor)
@@ -53,11 +53,11 @@ def train_model():
             if (epoch + 1) % 2 == 0:
                 print(f'Epoch [{epoch+1}/{EPOCHS}], Loss: {loss.item():.4f}')
                 mlflow.log_metric("train_loss", loss.item(), step=epoch)
-
+ 
         print("Treinamento concluído.")
         
-        # --- Logging do Modelo ---
         mlflow.pytorch.log_model(model, "pytorch-model")
+
         print("Modelo logado no MLflow com sucesso!")
         print(f"Para ver os resultados, execute 'mlflow ui' na pasta do projeto.")
 
