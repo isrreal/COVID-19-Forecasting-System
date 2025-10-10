@@ -21,7 +21,7 @@ def train_model():
     y_train_tensor = torch.randn(100, 1)
 
 
-    mlflow.set_tracking_uri("file:///app/mlruns")
+    mlflow.set_tracking_uri("http://127.0.0.1:8000")
 
     with mlflow.start_run():
         print("Iniciando run do MLflow...")
