@@ -19,9 +19,8 @@ def train_model():
   
     X_train_tensor = torch.randn(100, 10, 1) 
     y_train_tensor = torch.randn(100, 1)
-
-
-    mlflow.set_tracking_uri("http://mlflow:5000")
+   
+    mlflow.set_experiment("CovidExperiment")
  
     with mlflow.start_run():
         print("Iniciando run do MLflow...")
