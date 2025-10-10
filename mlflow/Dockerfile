@@ -1,6 +1,3 @@
-FROM ghcr.io/mlflow/mlflow:latest
+FROM ghcr.io/mlflow/mlflow:v2.7.1
 
-RUN pip install --no-cache-dir psycopg-binary
-
-RUN mlflow server --host 127.0.0.1 --port 8080
-
+RUN pip install --no-cache-dir psycopg2-binary
