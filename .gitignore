@@ -15,3 +15,7 @@ __pycache__/
 *.log
 
 mlruns/
+
+notebooks
+feature_engineering.py
+predict.py
