@@ -1,47 +1,57 @@
-
 services:
-  # 1. O Serviço do Banco de Dados PostgreSQL
   db:
     image: postgres:15-alpine
     container_name: covid_db_container
-    # Carrega as variáveis do arquivo .env para configurar o banco de dados
     env_file:
       - .env
-    # Adicionalmente, define o nome do banco de dados a ser criado
     environment:
       POSTGRES_DB: covid_db
-    # Garante que os dados do banco de dados persistam mesmo se o container for removido
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Mapeia a porta interna 5432 para a 5430 no seu computador (para debugging)
+      - ./postgres-init:/docker-entrypoint-initdb.d
     ports:
       - "5430:5432"
-    # Uma verificação para garantir que o banco de dados está pronto antes que a aplicação inicie
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d covid_db"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # 2. O Serviço da sua Aplicação Python
-  app:
-    build: .
-    container_name: covid_app_runner
-    # Garante que o container 'app' só inicie depois que o container 'db' estiver saudável
+  mlflow:
+    build: ./mlflow
+    container_name: mlflow_tracking_server
+    ports:
+      - "5001:5000"
+    env_file:
+      - .env
+    command: > 
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/mlflow_db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    volumes:
+      - mlflow_data:/mlflow/artifacts
     depends_on:
       db:
         condition: service_healthy
-    # Monta o diretório atual do seu projeto dentro do container
+
+  app:
+    build: .
+    container_name: covid_app_runner
+    depends_on:
+      db:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
     volumes:
       - .:/app
-    # Carrega o .env para ter acesso ao usuário/senha
     env_file:
       - .env
-    # Constrói a URL de conexão CORRETA para a aplicação.
-    # O ponto mais importante é usar 'db' como o host, que é o nome do serviço do banco de dados.
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
 
-# Define o volume nomeado para a persistência dos dados do banco
 volumes:
   postgres_data:
+  mlflow_data:
