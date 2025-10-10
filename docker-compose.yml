@@ -1,0 +1,47 @@
+
+services:
+  # 1. O Serviço do Banco de Dados PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: covid_db_container
+    # Carrega as variáveis do arquivo .env para configurar o banco de dados
+    env_file:
+      - .env
+    # Adicionalmente, define o nome do banco de dados a ser criado
+    environment:
+      POSTGRES_DB: covid_db
+    # Garante que os dados do banco de dados persistam mesmo se o container for removido
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Mapeia a porta interna 5432 para a 5430 no seu computador (para debugging)
+    ports:
+      - "5430:5432"
+    # Uma verificação para garantir que o banco de dados está pronto antes que a aplicação inicie
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d covid_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. O Serviço da sua Aplicação Python
+  app:
+    build: .
+    container_name: covid_app_runner
+    # Garante que o container 'app' só inicie depois que o container 'db' estiver saudável
+    depends_on:
+      db:
+        condition: service_healthy
+    # Monta o diretório atual do seu projeto dentro do container
+    volumes:
+      - .:/app
+    # Carrega o .env para ter acesso ao usuário/senha
+    env_file:
+      - .env
+    # Constrói a URL de conexão CORRETA para a aplicação.
+    # O ponto mais importante é usar 'db' como o host, que é o nome do serviço do banco de dados.
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+
+# Define o volume nomeado para a persistência dos dados do banco
+volumes:
+  postgres_data:
