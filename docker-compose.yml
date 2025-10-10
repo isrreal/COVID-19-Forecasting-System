@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:15-alpine
@@ -20,11 +22,11 @@ services:
   mlflow:
     build: ./mlflow
     container_name: mlflow_tracking_server
-    ports:
-      - "5001:5000"
     env_file:
       - .env
-    command: > 
+    ports:
+      - "5001:5000"
+    command: >
       mlflow server
       --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/mlflow_db
       --default-artifact-root /mlflow/artifacts
@@ -46,6 +48,7 @@ services:
         condition: service_started
     volumes:
       - .:/app
+      - mlflow_data:/mlflow
     env_file:
       - .env
     environment:
