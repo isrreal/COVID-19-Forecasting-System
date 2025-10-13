@@ -27,7 +27,6 @@ services:
     command: >
       mlflow server
       --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/mlflow_db
-      # --- CORREÇÃO: Caminho simplificado para os artefatos ---
       --default-artifact-root /artifacts
       --host 0.0.0.0
       --port 5000
@@ -40,6 +39,7 @@ services:
   app:
     build: .
     container_name: covid_app_runner
+    user: appuser 
     depends_on:
       db:
         condition: service_healthy
