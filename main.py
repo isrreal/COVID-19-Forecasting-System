@@ -18,7 +18,7 @@ async def consulta_teste():
     print("Consulta de teste finalizada.")
 
 async def main():
-    data_processing.etl_pipeline()
+    data_processing.main_etl_pipeline()
     
     train.train_model()
 
