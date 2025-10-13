@@ -2,6 +2,9 @@ pandas
 scikit-learn
 torch
 mlflow==2.7.1  
+numpy
+joblib 
+matplotlib
 
 sqlalchemy==2.0.40
 alembic
