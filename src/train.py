@@ -155,7 +155,7 @@ def run_experiments():
     scaler = MinMaxScaler(feature_range = (0, 1))
     time_series_scaled = scaler.fit_transform(time_series.reshape(-1, 1))
     
-    experiment_name = "Covid Forecasting CE"
+    experiment_name = "Covid Forecasting"
     mlflow.set_experiment(experiment_name)
     mlflow.set_experiment_tags(settings['tags'])
     
