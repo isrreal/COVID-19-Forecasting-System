@@ -63,10 +63,14 @@ def train_single_model(params: dict, X_train_tensor: torch.Tensor, y_train_tenso
     run_name = f"LR_{params['learning_rate']}_HS_{params['hidden_size']}_EP_{params['epochs']}"
     with mlflow.start_run(run_name = run_name):
         print(f"\n--- Iniciando nova Run: {run_name} ---")
-        mlflow.log_input(dataset = dataset, context="training")
+        mlflow.log_input(dataset = dataset, context = "training")
         run_tags = {
-            "model_type": "LSTM", "run_purpose": "Grid Search", "target_variable": "new_confirmed",
-            "feature_set": "v1_univariate", "developer": "leggen-assis", "data_source_table": "casos_covid",
+            "model_type": "LSTM",
+            "run_purpose": "Grid Search",
+            "target_variable": "new_confirmed",
+            "feature_set": "v1_univariate",
+            "developer": "leggen-assis",
+            "data_source_table": "casos_covid",
             "data_source_filter": "state='CE'"
         }
         mlflow.set_tags(run_tags)
