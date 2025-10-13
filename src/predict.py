@@ -22,8 +22,6 @@ def predict_next_day(run_id: str):
     print("Carregando o scaler do MLflow...")
     try:
         client = MlflowClient()
-        run_info = client.get_run(run_id)
-        experiment_id = run_info.info.experiment_id
 
         local_scaler_dir = client.download_artifacts(run_id, "scaler", "/tmp")
         scaler_path = os.path.join(local_scaler_dir, f"scaler_{run_id}.gz")
