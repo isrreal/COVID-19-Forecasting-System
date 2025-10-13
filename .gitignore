@@ -19,3 +19,4 @@ mlruns/
 notebooks
 feature_engineering.py
 predict.py
+data/*
