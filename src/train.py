@@ -8,6 +8,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import ParameterGrid
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.ensemble import RandomForestRegressor 
 import joblib
 import matplotlib.pyplot as plt
 
@@ -18,13 +19,14 @@ from src.models.casos_covid import CasoCovid
 
 def experiments_settings(state: str):
     """Define as configurações do experimento para um estado específico."""
+
     experiment_description = (
         f"Projeto de forecasting para a série temporal de novos casos de COVID-19 no estado de {state}. "
         "Este experimento testa diferentes hiperparâmetros para um modelo LSTM."
     )
     experiment_tags = {
         "project_name": "covid-19-forecasting",
-        "state": state, 
+        "state": state,
         "team": "leggen-assis-ml",
         "project_quarter": "Q4-2025",
         "mlflow.note.content": experiment_description,
@@ -38,37 +40,35 @@ def experiments_settings(state: str):
     param_grid = list(ParameterGrid(search_space))
     return {"tags": experiment_tags, "param_grid": param_grid}
 
+
 def create_sequences(data, seq_length):
-    """Cria sequências de dados para a LSTM."""
+    """Cria sequências de dados."""
     xs, ys = [], []
     for i in range(len(data) - seq_length):
         xs.append(data[i:(i + seq_length)])
         ys.append(data[i + seq_length])
     return np.array(xs), np.array(ys)
 
-def calculate_metrics(y_true_scaled, y_pred_scaled, scaler):
-    """Calcula métricas de regressão (RMSE e MAE) des-escalonando os dados."""
-    y_true_inversed = scaler.inverse_transform(y_true_scaled)
-    y_pred_inversed = scaler.inverse_transform(y_pred_scaled)
-    rmse = np.sqrt(mean_squared_error(y_true_inversed, y_pred_inversed))
-    mae = mean_absolute_error(y_true_inversed, y_pred_inversed)
+
+def calculate_metrics(y_true, y_pred):
+    """Calcula métricas de regressão (RMSE e MAE). Agora aceita dados não escalonados."""
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    mae = mean_absolute_error(y_true, y_pred)
     return {"train_rmse": rmse, "train_mae": mae}
 
-def train_single_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_tensor: torch.Tensor, scaler, dataset: PandasDataset):
-    """Função para treinar um único modelo com um conjunto de hiperparâmetros."""
-    run_name = f"LR_{params['learning_rate']}_HS_{params['hidden_size']}_EP_{params['epochs']}"
+
+def train_lstm_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_tensor: torch.Tensor, scaler, dataset: PandasDataset):
+    """Função para treinar um único modelo LSTM."""
+
+    run_name = f"LSTM_LR_{params['learning_rate']}_HS_{params['hidden_size']}_EP_{params['epochs']}"
     with mlflow.start_run(run_name=run_name):
-        print(f"\n--- Iniciando nova Run: {run_name} ---")
+        print(f"\n--- Iniciando nova Run (LSTM): {run_name} ---")
         mlflow.log_input(dataset=dataset, context="training")
         
         mlflow.set_tags({
-            "model_type": "LSTM",
-            "run_purpose": "Grid Search",
-            "target_variable": "new_confirmed",
-            "feature_set": "v1_univariate",
-            "developer": "leggen-assis",
-            "data_source_table": "casos_covid",
-            "data_source_filter": f"state='{state}'" 
+            "model_type": "LSTM", "run_purpose": "Grid Search", "target_variable": "new_confirmed",
+            "feature_set": "v1_univariate", "developer": "leggen-assis", "data_source_table": "casos_covid",
+            "data_source_filter": f"state='{state}'"
         })
         mlflow.log_params(params)
 
@@ -91,9 +91,13 @@ def train_single_model(params: dict, state: str, X_train_tensor: torch.Tensor, y
 
             model.eval()
             with torch.no_grad():
-                all_outputs = model(X_train_tensor)
-                epoch_loss = criterion(all_outputs, y_train_tensor).item()
-                metrics = calculate_metrics(y_train_tensor.numpy(), all_outputs.numpy(), scaler)
+                all_outputs_scaled = model(X_train_tensor)
+                epoch_loss = criterion(all_outputs_scaled, y_train_tensor).item()
+                
+                y_true_inversed = scaler.inverse_transform(y_train_tensor.numpy())
+                y_pred_inversed = scaler.inverse_transform(all_outputs_scaled.numpy())
+                
+                metrics = calculate_metrics(y_true_inversed, y_pred_inversed)
 
             mlflow.log_metric("train_loss_epoch", epoch_loss, step=epoch)
             mlflow.log_metrics(metrics, step=epoch)
@@ -101,9 +105,9 @@ def train_single_model(params: dict, state: str, X_train_tensor: torch.Tensor, y
                 print(f'Epoch [{epoch + 1}/{params["epochs"]}], Loss: {epoch_loss:.4f}, RMSE: {metrics["train_rmse"]:.2f}, MAE: {metrics["train_mae"]:.2f}')
         
         fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(scaler.inverse_transform(y_train_tensor.numpy()), label='Valores Reais')
-        ax.plot(scaler.inverse_transform(all_outputs.numpy()), label='Previsões', linestyle='--')
-        ax.set_title(f'Previsões vs. Reais - Run: {run_name}')
+        ax.plot(y_true_inversed, label='Valores Reais')
+        ax.plot(y_pred_inversed, label='Previsões', linestyle='--')
+        ax.set_title(f'Previsões vs. Reais (LSTM) - Run: {run_name}')
         ax.set_xlabel('Tempo')
         ax.set_ylabel('Novos Casos Confirmados')
         ax.legend()
@@ -119,12 +123,55 @@ def train_single_model(params: dict, state: str, X_train_tensor: torch.Tensor, y
         os.remove(scaler_path)
         mlflow.pytorch.log_model(model, "pytorch-model")
 
+
+def train_random_forest_model(X_train, y_train, state: str, dataset: PandasDataset):
+    """
+    Treina um modelo RandomForest e loga os resultados no MLflow.
+    """
+    run_name = "RandomForest_Baseline"
+    with mlflow.start_run(run_name=run_name):
+        print(f"\n--- Iniciando nova Run (RandomForest): {run_name} ---")
+        mlflow.log_input(dataset=dataset, context="training")
+
+        params_rf = {'n_estimators': 100, 'max_depth': 10, 'random_state': 42}
+        
+        mlflow.set_tags({
+            "model_type": "RandomForest", "run_purpose": "Baseline", "target_variable": "new_confirmed",
+            "feature_set": "v1_univariate_lags", "developer": "leggen-assis", "data_source_table": "casos_covid",
+            "data_source_filter": f"state='{state}'"
+        })
+        mlflow.log_params(params_rf)
+
+        print("Treinando o modelo RandomForest...")
+        model = RandomForestRegressor(**params_rf)
+        model.fit(X_train, y_train.ravel())
+
+        y_pred = model.predict(X_train)
+        metrics = calculate_metrics(y_train, y_pred)
+        mlflow.log_metrics(metrics)
+        print(f'RandomForest Results -> RMSE: {metrics["train_rmse"]:.2f}, MAE: {metrics["train_mae"]:.2f}')
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(y_train, label='Valores Reais')
+        ax.plot(y_pred, label='Previsões', linestyle='--')
+        ax.set_title(f'Previsões vs. Reais (RandomForest)')
+        ax.set_xlabel('Tempo')
+        ax.set_ylabel('Novos Casos Confirmados')
+        ax.legend()
+        ax.grid(True)
+        plot_path = f"/tmp/rf_predictions_vs_reals_{mlflow.active_run().info.run_id}.png"
+        fig.savefig(plot_path)
+        plt.close(fig)
+        mlflow.log_artifact(plot_path, "plots")
+        mlflow.sklearn.log_model(model, "sklearn-model")
+        print("Modelo RandomForest e gráfico logados com sucesso.")
+
+
 def run_experiments(state: str):
     """Orquestra todo o processo de experimentação para um único estado."""
     print(f"\n{'='*60}\nIniciando script de experimentação para o estado: {state}\n{'='*60}")
     
     settings = experiments_settings(state)
-
     print(f"Conectando ao banco de dados para buscar dados de {state}...")
     with sync_engine.connect() as conn:
         query = select(CasoCovid.datetime, CasoCovid.new_confirmed).where(CasoCovid.state == state)
@@ -132,35 +179,39 @@ def run_experiments(state: str):
         df = pd.DataFrame(result.fetchall(), columns=result.keys())
     
     if df.empty:
-        print(f"Nenhum dado encontrado para o estado {state}. Pulando para o próximo.")
+        print(f"Nenhum dado encontrado para o estado {state}. Pulando.")
         return
         
     df = df.sort_values('datetime').rename(columns={'datetime': 'date'})
     print(f"Dados carregados com sucesso. {len(df)} registros encontrados para {state}.")
 
     mlflow_dataset = mlflow.data.from_pandas(df, name=f"casos_covid_{state.lower()}_train")
-    time_series = df['new_confirmed'].values.astype(float)
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    time_series_scaled = scaler.fit_transform(time_series.reshape(-1, 1))
 
     experiment_name = f"Covid Forecasting - {state}"
     mlflow.set_experiment(experiment_name)
     mlflow.set_experiment_tags(settings['tags'])
 
+    time_series_raw = df['new_confirmed'].values.astype(float)
+    SEQ_LENGTH_RF = 14 
+    X_train_rf, y_train_rf = create_sequences(time_series_raw.reshape(-1, 1), SEQ_LENGTH_RF)
+    X_train_rf = X_train_rf.reshape(X_train_rf.shape[0], SEQ_LENGTH_RF)
+    train_random_forest_model(X_train_rf, y_train_rf, state, mlflow_dataset)
+
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    time_series_scaled = scaler.fit_transform(time_series_raw.reshape(-1, 1))
+    
     for params in settings['param_grid']:
-        X_train, y_train = create_sequences(time_series_scaled, params['sequence_length'])
-        X_train_tensor = torch.from_numpy(X_train).float()
-        y_train_tensor = torch.from_numpy(y_train).float()
-        train_single_model(params, state, X_train_tensor, y_train_tensor, scaler, mlflow_dataset)
+        seq_length_lstm = params['sequence_length']
+        X_train_lstm, y_train_lstm = create_sequences(time_series_scaled, seq_length_lstm)
+        X_train_tensor = torch.from_numpy(X_train_lstm).float()
+        y_train_tensor = torch.from_numpy(y_train_lstm).float()
+        train_lstm_model(params, state, X_train_tensor, y_train_tensor, scaler, mlflow_dataset)
 
     print(f"\nTodos os experimentos para o estado {state} foram concluídos!")
 
+
 if __name__ == "__main__":
     states_to_train = ["CE", "SP", "RJ", "PE"]
-    
     for state_code in states_to_train:
         run_experiments(state=state_code)
-        
-    print(f"\n{'='*60}\nProcesso de experimentação finalizado para todos os estados!\n{'='*60}")
-    print(f"Acesse a UI do MLflow em http://localhost:5001 para ver os resultados.")
-# Adicione ou remova os estados que você quer treinar nesta lista
+    print(f"\n{'='*60}\nProcesso finalizado!\n{'='*60}")
