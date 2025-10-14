@@ -119,7 +119,7 @@ def train_single_model(params: dict, state: str, X_train_tensor: torch.Tensor, y
         os.remove(scaler_path)
         mlflow.pytorch.log_model(model, "pytorch-model")
 
-def run_experiments_for_state(state: str):
+def run_experiments(state: str):
     """Orquestra todo o processo de experimentação para um único estado."""
     print(f"\n{'='*60}\nIniciando script de experimentação para o estado: {state}\n{'='*60}")
     
@@ -159,7 +159,8 @@ if __name__ == "__main__":
     states_to_train = ["CE", "SP", "RJ", "PE"]
     
     for state_code in states_to_train:
-        run_experiments_for_state(state=state_code)
+        run_experiments(state=state_code)
         
     print(f"\n{'='*60}\nProcesso de experimentação finalizado para todos os estados!\n{'='*60}")
     print(f"Acesse a UI do MLflow em http://localhost:5001 para ver os resultados.")
+# Adicione ou remova os estados que você quer treinar nesta lista
