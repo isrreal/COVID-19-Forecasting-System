@@ -1,13 +1,15 @@
 import asyncio
 from src import predict
-import os
-import mlflow
+from src import data_processing
+from src import train
 
 async def main():
-    mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5001"))
 
-    predict.predict_next_day(run_id = predict.BEST_RUN_ID)
+    data_processing.main_etl_pipeline()
 
-
+    states_to_train = ["CE", "SP", "RJ", "PE"]
+    
+    for state_code in states_to_train:
+        train.run_experiments(state = state_code)
 if __name__ == "__main__":
     asyncio.run(main())
