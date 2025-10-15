@@ -1,13 +1,12 @@
 from fastapi import APIRouter, HTTPException, Query, Path
-from typing import List
 
-from api.v1.schemas.forecast import (
+from src.api.v1.schemas.forecast import (
     PredictionRequest, 
     ForecastResponse, 
     PredictionResponse
 )
 
-from services.forecast_service import get_prediction_for_state, get_forecast_for_state
+from src.api.v1.services.forecast_service import get_prediction_for_state, get_forecast_for_state
 
 router: APIRouter = APIRouter()
 
@@ -18,7 +17,7 @@ router: APIRouter = APIRouter()
 )
 def predict_next_day(
     payload: PredictionRequest,
-    state_code: str = Path(...,
+    state_code: str = Path(
                         min_length = 2,
                         max_length = 2,
                         example = "CE",

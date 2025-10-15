@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from api.v1.endpoints import forecast
+from src.api.v1.endpoints import forecast
 
 api_router: APIRouter = APIRouter()
 
