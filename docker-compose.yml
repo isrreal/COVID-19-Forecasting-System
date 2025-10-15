@@ -36,22 +36,42 @@ services:
       db:
         condition: service_healthy
 
-  app:
+  api:
     build: .
-    container_name: covid_app_runner
-    user: appuser 
+    container_name: fastapi_api_server
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
     depends_on:
       db:
         condition: service_healthy
       mlflow:
         condition: service_started
+
+  app_runner:
+    build: .
+    container_name: covid_app_runner
+
+    user: appuser
     volumes:
       - .:/app
     env_file:
       - .env
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
-      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI} 
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+    depends_on:
+      db:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
 
 volumes:
   postgres_data:
