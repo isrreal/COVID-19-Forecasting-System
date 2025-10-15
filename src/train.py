@@ -31,13 +31,14 @@ def experiments_settings_lstm(state: str):
         "project_quarter": "Q4-2025",
         "mlflow.note.content": experiment_description,
     }
+
     search_space = {
-        'learning_rate': [0.001, 0.0005],
-        'hidden_size': [50, 64, 100],
-        'epochs': [30, 50, 100],
-        'sequence_length': [14, 360],
-        'batch_size': [10, 50, 100],
-        'n_layers': [2, 10, 20, 30]
+        'learning_rate': [0.001],        
+        'hidden_size': [50],              
+        'epochs': [30],                   
+        'sequence_length': [14],          
+        'batch_size': [50],               
+        'n_layers': [2]                  
     }
 
     param_grid = list(ParameterGrid(search_space))
