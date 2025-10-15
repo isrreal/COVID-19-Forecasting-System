@@ -7,7 +7,7 @@ async def main():
 
     data_processing.main_etl_pipeline()
 
-    states_to_train = ["CE", "SP", "RJ", "PE"]
+    states_to_train = ["CE"]#, "SP", "RJ", "PE"]
     
     for state_code in states_to_train:
         train.run_experiments(state = state_code)
