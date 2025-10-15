@@ -1,15 +1,15 @@
-import asyncio
-from src import predict
-from src import data_processing
-from src import train
+from fastapi import FastAPI
+from src.api.v1.api import api_router
 
-async def main():
+app = FastAPI(
+    title = "API de Forecasting de COVID-19",
+    version = "1.0.0",
+    description = "Uma API para servir previsões de novos casos de COVID-19 para estados do Brasil."
+)
 
-    data_processing.main_etl_pipeline()
+app.include_router(api_router, prefix = "/api/v1")
 
-    states_to_train = ["CE"]#, "SP", "RJ", "PE"]
-    
-    for state_code in states_to_train:
-        train.run_experiments(state = state_code)
-if __name__ == "__main__":
-    asyncio.run(main())
+@app.get("/", tags = ["Root"])
+def read_root():
+    """Endpoint raiz para verificar se a API está online."""
+    return {"message": "Bem-vindo à API de Forecasting de COVID-19!"}
