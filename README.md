@@ -492,13 +492,11 @@ Generates a forecast of new confirmed cases for a specific state for the next N 
 | `days` | integer | ❌ No | 7 | Number of future days to forecast |
 
 #### Example Request
-
 ```bash
 curl -X GET "http://localhost:8000/api/v1/forecast/CE?days=7"
 ```
 
 #### Example Response
-
 ```json
 {
   "state": "CE",
@@ -538,6 +536,95 @@ curl -X GET "http://localhost:8000/api/v1/forecast/CE?days=7"
 
 **Note**: The API automatically selects the best performing model (lowest RMSE) from MLflow registry. In most cases, this will be a PLE model due to its superior performance.
 
+---
+
+### `POST /api/v1/forecast/predict/{state_code}`
+
+Receives a sequence of new confirmed case data and returns the prediction for the next day. The sequence length must match the expected input size of the best trained model for the state.
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `state_code` | string | ✅ Yes | - | State abbreviation (e.g., `CE`, `SP`, `RJ`) |
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `sequence` | array of numbers | ✅ Yes | Historical sequence of new confirmed cases (length: 14 or 30 days depending on model) |
+
+#### Example Request
+```bash
+curl -X POST "http://localhost:8000/api/v1/forecast/predict/CE" \
+  -H "accept: application/json" \
+  -H "Content-Type: application/json" \
+  -d '{
+  "sequence": [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+    10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+    20, 21, 22, 23, 24, 25, 26, 27, 28, 29
+  ]
+}'
+```
+
+#### Example Response
+```json
+{
+  "state": "CE",
+  "model_run_id": "8830cfa7ba604d0485276e9b29f29530",
+  "prediction": 893.75
+}
+```
+
+**Use Case**: This endpoint is useful when you have your own recent data and want a single-step prediction without relying on the database.
+
+---
+
+## 🔧 Advanced Usage
+
+### Training Custom States
+
+Use the workflow orchestrator with different state combinations:
+```bash
+# Train a single state
+docker compose run app_runner python main_workflow.py --states CE
+
+# Train multiple states sequentially
+docker compose run app_runner python main_workflow.py --states CE SP RJ MG BA
+
+# Train multiple states in parallel (faster, requires more resources)
+docker compose run app_runner python main_workflow.py --states CE SP RJ MG BA --parallel
+
+# Skip ETL and only retrain models
+docker compose run app_runner python main_workflow.py --states CE SP --skip-etl
+```
+
+### Workflow Command Reference
+```bash
+# Full pipeline with all options
+docker compose run app_runner python main_workflow.py \
+  --states CE SP RJ \
+  --parallel \
+  --skip-etl
+
+# Help command to see all options
+docker compose run app_runner python main_workflow.py --help
+```
+
+**Output:**
+```
+usage: main_workflow.py [-h] --states STATES [STATES ...] [--skip-etl] [--parallel]
+
+Orquestrador do Pipeline de ML para Forecasting de COVID-19.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --states STATES [STATES ...]
+                        Lista de siglas dos estados para treinar (ex: CE SP RJ).
+  --skip-etl            Pula a etapa de ETL se os dados já estiverem atualizados.
+  --parallel            Executa o treinamento para múltiplos estados em paralelo.
+```
 ---
 
 ## 🔧 Advanced Usage
@@ -644,6 +731,72 @@ Contributions are welcome! Please follow these steps:
 5. Open a Pull Request
 
 ---
+
+
+## 🚀 Future Enhancements
+
+### 📊 Performance & Evaluation
+- **Expand Performance Metrics**
+  - Add MAPE (Mean Absolute Percentage Error) for relative accuracy assessment
+  - Implement R² score for goodness-of-fit evaluation
+  - Add quantile loss functions for probabilistic forecasting
+  - Create confidence intervals for predictions (e.g., 95% prediction intervals)
+  - Implement cross-validation with time-series split for robust evaluation
+  - Add A/B testing framework to compare model versions in production
+
+### 🧪 Testing & Quality Assurance
+- **Comprehensive Testing Suite**
+  - `GET /health` - Service health check with dependency status
+  - `GET /api/v1/test/integration` - End-to-end pipeline validation
+  - `POST /api/v1/test/predict` - Mock prediction endpoint for testing
+  - Unit tests for all data processing functions
+  - Integration tests for ETL pipeline stages
+  - Load testing for API performance benchmarks
+  - Model performance regression tests
+
+### 📈 Advanced Analytics & Insights
+- **Statistical Analysis Routes**
+  - `GET /api/v1/stats/trends/{state_code}` - Time series trend decomposition (trend, seasonality, residuals)
+  - `GET /api/v1/stats/correlation` - Cross-state correlation analysis
+  - `GET /api/v1/stats/hypothesis-test/{state_code}` - Chi-square ($\chi^2$) tests for distribution changes
+  - `GET /api/v1/stats/anomalies/{state_code}` - Anomaly detection using isolation forests
+  - `GET /api/v1/stats/changepoint/{state_code}` - Bayesian changepoint detection
+  - `GET /api/v1/stats/compare` - Multi-state comparative analytics
+
+### 🤖 Model Improvements
+- **Architecture Enhancements**
+  - Implement Transformer-based models (Temporal Fusion Transformer)
+  - Add attention mechanisms to LSTM and PLE architectures
+  - Experiment with hybrid CNN-LSTM models
+  - Implement ensemble stacking with multiple model types
+  - Add AutoML for automated hyperparameter optimization (Optuna integration)
+  - Experiment Random Forest Regressor
+
+### 📡 Feature Engineering
+- **External Data Integration**
+  - Weather data (temperature, humidity) correlation analysis
+  - Mobility data from Google/Apple mobility reports
+  - Vaccination rates and their impact on case numbers
+  - Holiday and event calendar for seasonality adjustment
+  - Social distancing policy indicators
+
+### 🔄 MLOps & Infrastructure
+- **Production Readiness**
+  - Implement model retraining scheduler (daily/weekly)
+  - Add data drift detection and alerts
+  - Create model performance monitoring dashboard
+  - Implement feature store for consistent feature engineering
+  - Add CI/CD pipeline with automated testing and deployment
+  - Container orchestration with Kubernetes
+  - API rate limiting and authentication (OAuth2/JWT)
+
+### 📱 User Experience
+- **Interactive Dashboard**
+  - Real-time visualization dashboard with Streamlit or Plotly Dash
+  - Interactive state comparison charts
+  - Downloadable reports (PDF/Excel)
+  - Email/SMS alerts for significant predictions
+  - Mobile-responsive web interface
 
 ## 📝 License
 
