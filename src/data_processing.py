@@ -76,10 +76,18 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     print("Iniciando limpeza e transformação dos dados...")
     
     df_states = df[df['place_type'] == 'state'].copy()
-    df_states['date'] = pd.to_datetime(df_states['date']).dt.date
     
-    print("Imputando valores de população ausentes...")
+    print("Convertendo e imputando datas ausentes por interpolação...")
+    df_states['date'] = pd.to_datetime(df_states['date'], errors = 'coerce')
     df_states = df_states.sort_values(by = ['state', 'date'])
+    df_states['date'] = df_states.groupby('state')['date'].transform(
+        lambda x: x.interpolate(method='linear').ffill().bfill()
+    )
+    df_states.dropna(subset = ['date'], inplace = True)
+    df_states['date'] = df_states['date'].dt.date
+    print("Imputação de datas concluída.")
+
+    print("Imputando valores de população ausentes...")
     cols_to_fill_pop = ['estimated_population', 'estimated_population_2019']
     df_states[cols_to_fill_pop] = df_states.groupby('state')[cols_to_fill_pop].transform(lambda x: x.ffill().bfill())
     df_states.dropna(subset = cols_to_fill_pop, inplace = True)
@@ -97,7 +105,7 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
         
         helper_cols = [col for col in features_for_knn if col != target_col]
         df_states[helper_cols] = df_states.groupby('state')[helper_cols].transform(lambda x: x.ffill().bfill())
-        df_states.dropna(subset=helper_cols, inplace = True)
+        df_states.dropna(subset = helper_cols, inplace = True)
 
         imputed_dfs = []
         for state, group in df_states.groupby('state'):
@@ -124,10 +132,12 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
             df_imputed_full = pd.concat(imputed_dfs)
             df_states[target_col] = df_imputed_full[target_col]
 
-        df_states.drop(columns = ['date_ordinal'], inplace = True)
+        df_states.drop(columns=['date_ordinal'], inplace=True)
         print("Imputação com KNN concluída.")
 
     df_states['city_ibge_code'] = pd.to_numeric(df_states['city_ibge_code'], errors = 'coerce').astype('Int64')
+
+    df_states.rename(columns = {'date': 'datetime'}, inplace = True)
 
     model_columns = [c.name for c in CasoCovid.__table__.columns if c.name != 'id']
     df_to_load = df_states.reindex(columns = model_columns)
