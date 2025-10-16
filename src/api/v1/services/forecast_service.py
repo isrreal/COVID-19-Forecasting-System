@@ -9,7 +9,7 @@ from mlflow.tracking import MlflowClient
 from src.models.casos_covid import CasoCovid
 from sqlalchemy import select, desc
 
-from database import sync_engine 
+from database import sync_engine
 
 mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
 client = MlflowClient()
@@ -18,7 +18,7 @@ model_cache = {}
 
 def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
     """
-    Retorna a run com menor RMSE para um estado, buscando no experimento de COMPARAÇÃO.
+    Retorna a run com o menor RMSE para um estado, buscando no experimento de COMPARAÇÃO.
     """
     experiment_name = f"Covid Forecasting Comparison - {state_code}"
     try:
@@ -28,9 +28,9 @@ def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
             return None
 
         runs_df = mlflow.search_runs(
-            experiment_ids=[experiment.experiment_id],
-            order_by=["metrics.train_rmse ASC"],
-            max_results=1
+            experiment_ids = [experiment.experiment_id],
+            order_by = ["metrics.train_rmse ASC"],
+            max_results = 1
         )
         if runs_df.empty:
             print(f"Nenhuma run encontrada para o estado {state_code}.")
@@ -38,6 +38,7 @@ def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
         
         best_run = runs_df.iloc[0]
         run_id = best_run["run_id"]
+        
         if "params.sequence_length" in best_run:
             seq_length = int(best_run["params.sequence_length"])
         else:
@@ -52,7 +53,7 @@ def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
 
 def _load_model_from_mlflow(state_code: str):
     """
-    Carrega modelo PyTorch e scaler do MLflow.
+    Carrega o modelo PyTorch e o scaler a partir do MLflow, usando um cache.
     """
     if state_code in model_cache:
         return model_cache[state_code]
@@ -77,7 +78,7 @@ def _load_model_from_mlflow(state_code: str):
     try:
         model_uri = f"runs:/{run_id}/model"
         model = mlflow.pytorch.load_model(model_uri)
-        model.eval()
+        model.eval() 
     except Exception as e:
         print(f"Erro ao carregar modelo PyTorch da run {run_id}: {e}")
         return None
@@ -93,6 +94,9 @@ def _load_model_from_mlflow(state_code: str):
 
 
 def get_prediction_for_state(state_code: str, sequence: list) -> dict:
+    """
+    Realiza uma única previsão para uma sequência de dados.
+    """
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
         return None
@@ -123,7 +127,7 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict:
 
 def get_forecast_for_state(state_code: str, days: int) -> dict:
     """
-    Previsão multi-step para múltiplos dias usando os dados mais recentes do banco.
+    Gera uma previsão multi-step para N dias futuros, usando os dados mais recentes do banco.
     """
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
@@ -134,28 +138,34 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
 
     with sync_engine.connect() as conn:
         query = (
-            select(CasoCovid.new_confirmed)
+            select(CasoCovid.datetime, CasoCovid.new_confirmed)
             .where(CasoCovid.state == state_code)
             .order_by(desc(CasoCovid.datetime))
             .limit(seq_length)
         )
-        result = conn.execute(query)
-        latest_data = result.scalars().all() 
+        result = conn.execute(query).all() 
     
-    if len(latest_data) < seq_length:
-        raise ValueError(f"Dados insuficientes para {state_code}: {len(latest_data)} encontrados, {seq_length} necessários.")
+    if len(result) < seq_length:
+        raise ValueError(f"Dados insuficientes para {state_code}: {len(result)} encontrados, {seq_length} necessários.")
 
-    current_sequence = list(reversed(latest_data)) 
+    last_known_date = result[0][0].date() 
+    
+    latest_data = [row[1] for row in reversed(result)]
+    current_sequence = latest_data
 
-    today = date.today()
     forecast_list = []
 
     for i in range(1, days + 1):
-        result = get_prediction_for_state(state_code, current_sequence)
-        predicted_value = result["prediction"]
+        future_date = last_known_date + timedelta(days = i)
 
-        future_date = today + timedelta(days=i)
-        forecast_list.append({"date": future_date.isoformat(), "predicted_value": predicted_value})
+        result_pred = get_prediction_for_state(state_code, current_sequence)
+        
+        predicted_value = max(0, result_pred["prediction"])
+
+        forecast_list.append({
+            "date": future_date.isoformat(), 
+            "predicted_value": predicted_value
+        })
 
         current_sequence.pop(0)
         current_sequence.append(predicted_value)
