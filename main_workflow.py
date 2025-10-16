@@ -4,7 +4,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 
 from src import data_processing
-from src import train
+from src import train 
 
 logging.basicConfig(
     level = logging.INFO,
@@ -21,12 +21,12 @@ def main(args):
 
     if not args.skip_etl:
         logging.info("Iniciando a Etapa 1: Pipeline de ETL de dados.")
-    try:
-        data_processing.main_etl_pipeline()
-        logging.info("Etapa 1 concluída com sucesso.")
-    except Exception as e:
-        logging.error(f"Falha na Etapa 1 (ETL): {e}")
-        return 
+        try:
+            data_processing.main_etl_pipeline()
+            logging.info("Etapa 1 concluída com sucesso.")
+        except Exception as e:
+            logging.error(f"Falha na Etapa 1 (ETL): {e}")
+            return 
 
     states_to_train = args.states
     if not states_to_train:
@@ -42,7 +42,7 @@ def main(args):
     else:
         logging.info("Executando treinamento em modo sequencial.")
         for state_code in states_to_train:
-            train.run_experiments(state=state_code)
+            train.run_experiments(state = state_code)
     
     logging.info("Etapa 2 concluída com sucesso.")
     end_time = time.time()
@@ -50,7 +50,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Orquestrador do Pipeline de ML para Forecasting de COVID-19.")
+    parser = argparse.ArgumentParser(description = "Orquestrador do Pipeline de ML para Forecasting de COVID-19.")
     parser.add_argument(
         '--states', nargs = '+', required = True,
         help = "Lista de siglas dos estados para treinar (ex: CE SP RJ)."
