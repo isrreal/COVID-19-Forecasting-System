@@ -27,11 +27,13 @@ services:
     command: >
       mlflow server
       --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/mlflow_db
-      --default-artifact-root /artifacts
+      --default-artifact-root file:///mlflow/artifacts
+      --serve-artifacts
       --host 0.0.0.0
       --port 5000
     volumes:
-      - mlflow_data:/artifacts
+      - mlflow_artifacts:/mlflow/artifacts
+      - mlflow_backend:/mlflow/backend
     depends_on:
       db:
         condition: service_healthy
@@ -42,13 +44,14 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - .:/app
+      - mlflow_artifacts:/mlflow/artifacts:ro  
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
-      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
         condition: service_healthy
@@ -58,15 +61,15 @@ services:
   app_runner:
     build: .
     container_name: covid_app_runner
-
     user: appuser
     volumes:
       - .:/app
+      - mlflow_artifacts:/mlflow/artifacts
     env_file:
       - .env
     environment:
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
-      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
         condition: service_healthy
@@ -75,4 +78,5 @@ services:
 
 volumes:
   postgres_data:
-  mlflow_data:
+  mlflow_artifacts:
+  mlflow_backend:
