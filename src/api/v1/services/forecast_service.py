@@ -136,30 +136,30 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
     run_id = artifacts["run_id"]
     seq_length = artifacts["seq_length"]
 
-    with sync_engine.connect() as conn:
+    with sync_engine.connect() as session:    
         query = (
             select(CasoCovid.datetime, CasoCovid.new_confirmed)
             .where(CasoCovid.state == state_code)
             .order_by(desc(CasoCovid.datetime))
             .limit(seq_length)
         )
-        result = conn.execute(query).all() 
-    
+        result = session.execute(query).all()
+
     if len(result) < seq_length:
         raise ValueError(f"Dados insuficientes para {state_code}: {len(result)} encontrados, {seq_length} necessários.")
 
-    last_known_date = result[0][0].date() 
-    
+    last_known_date = result[0][0]
+    print(f"\nDEBUG: Última data registrada: {last_known_date}")
+
     latest_data = [row[1] for row in reversed(result)]
     current_sequence = latest_data
 
     forecast_list = []
 
     for i in range(1, days + 1):
-        future_date = last_known_date + timedelta(days = i)
+        future_date = last_known_date + timedelta(days=i)
 
         result_pred = get_prediction_for_state(state_code, current_sequence)
-        
         predicted_value = max(0, result_pred["prediction"])
 
         forecast_list.append({
