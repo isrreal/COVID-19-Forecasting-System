@@ -33,12 +33,12 @@ def experiments_settings_lstm(state: str):
     }
 
     search_space = {
-        'learning_rate': [0.001],        
-        'hidden_size': [50],              
-        'epochs': [30],                   
-        'sequence_length': [14],          
-        'batch_size': [50],               
-        'n_layers': [2]                  
+        'learning_rate': [0.001, 0.0005],       
+        'hidden_size': [50, 60],            
+        'epochs': [30],                 
+        'sequence_length': [14],        
+        'batch_size': [50],             
+        'n_layers': [2, 5]                 
     }
 
     param_grid = list(ParameterGrid(search_space))
@@ -140,6 +140,7 @@ def train_lstm_model(params: dict,
         plt.close(fig)
         mlflow.log_artifact(plot_path, "plots")
         os.remove(plot_path)
+
         scaler_path = f"/tmp/scaler_{mlflow.active_run().info.run_id}.gz"
         joblib.dump(scaler, scaler_path)
         mlflow.log_artifact(scaler_path, "scaler")
@@ -178,6 +179,11 @@ def run_experiments(state: str):
     for params in settings['param_grid']:
         seq_length_lstm = params['sequence_length']
         X_train_lstm, y_train_lstm = create_sequences(time_series_scaled, seq_length_lstm)
+        
+        if len(X_train_lstm) == 0:
+            print(f"Não foi possível criar sequências para o estado {state} com sequence_length={seq_length_lstm}. Pulando esta combinação.")
+            continue
+
         X_train_tensor = torch.from_numpy(X_train_lstm).float()
         y_train_tensor = torch.from_numpy(y_train_lstm).float()
 
@@ -193,7 +199,8 @@ def run_experiments(state: str):
     print(f"\nTodos os experimentos para o estado {state} foram concluídos!")
 
 if __name__ == "__main__":
-    states_to_train = ["CE"]#, "SP", "RJ", "PE"]
+    states_to_train = ["CE", "PE", "SP", "RJ"] 
+    
     for state_code in states_to_train:
         run_experiments(state = state_code)
     print(f"\n{'='*60}\nProcesso finalizado!\n{'='*60}")
