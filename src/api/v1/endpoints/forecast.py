@@ -44,25 +44,22 @@ def predict_next_day(
     summary = "Gera uma previsão para os próximos N dias"
 )
 def get_forecast(
-    state_code: str = Path(
-        min_length = 2, max_length = 2, example = "SP", description = "Sigla do estado (UF)"
-    ),
-    days: int = Query(
-        default = 7, ge = 1, le = 30, description = "Número de dias para prever no futuro."
-    )
+    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    days: int = Query(default = 7, ge = 1, le = 30)
 ):
-    """
-    Busca os dados mais recentes do banco de dados e gera uma previsão 
-    para os próximos `days`, começando a partir de hoje.
-    """
     try:
         forecast_data = get_forecast_for_state(state_code.upper(), days)
         if not forecast_data:
             raise HTTPException(status_code = 404, detail = f"Modelo para o estado {state_code} não encontrado.")
-        
         return forecast_data
+
     except ValueError as e:
         raise HTTPException(status_code = 400, detail = str(e))
+
+    except HTTPException:
+        raise
+
     except Exception as e:
         print(f"Erro inesperado em get_forecast: {e}")
         raise HTTPException(status_code = 500, detail = "Ocorreu um erro interno ao gerar a previsão.")
+
