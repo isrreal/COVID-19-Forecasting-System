@@ -67,7 +67,7 @@ def calculate_metrics(y_true, y_pred):
     return {"train_rmse": rmse, "train_mae": mae}
 
 def train_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_tensor: torch.Tensor, scaler, dataset):
-    """Função genérica para treinar um modelo (LSTM ou PLE)."""
+    """Função genérica para treinar um modelo (LSTM ou PLE) otimizada para GPU e MLflow."""
     
     model_type = params['model_type']
     
@@ -80,19 +80,29 @@ def train_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_
         run_id = run.info.run_id
         print(f"\n--- Iniciando nova Run ({model_type}): {run_name} ---")
 
-        mlflow.log_input(dataset = dataset, context = "training")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        mlflow.log_input(dataset=dataset, context="training")
         mlflow.set_tags({
-            "model_type": model_type, 
-            "Optimizer": "Adam", "run_purpose": "Grid Search Comparison",
-            "target_variable": "new_confirmed", "feature_set": "v_univariate",
-            "developer": "leggen-assis", "data_source_table": "casos_covid",
+            "model_type": model_type,
+            "Optimizer": "Adam",
+            "run_purpose": "Grid Search Comparison",
+            "target_variable": "new_confirmed",
+            "feature_set": "v_univariate",
+            "developer": "leggen-assis",
+            "data_source_table": "casos_covid",
             "data_source_filter": f"state='{state}'"
         })
         mlflow.log_params(params)
 
+        # Move tensores para o dispositivo correto
+        X_train_tensor = X_train_tensor.to(device)
+        y_train_tensor = y_train_tensor.to(device)
+
         train_loader = DataLoader(
             TensorDataset(X_train_tensor, y_train_tensor),
-            batch_size = params["batch_size"], shuffle = True
+            batch_size = params["batch_size"],
+            shuffle = True
         )
 
         if model_type == 'LSTM':
@@ -103,22 +113,25 @@ def train_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_
             )
         elif model_type == 'PLE':
             model = CovidPredictorPLE(
-                n_features = 1,
+                n_features=1,
                 hidden_size = params['hidden_size'],
                 num_experts = params['num_experts'],
-                num_layers = params['num_ple_layers'] 
+                num_layers = params['num_ple_layers']
             )
         else:
             raise ValueError(f"Tipo de modelo desconhecido: {model_type}")
         
+        model = model.to(device)
         criterion = torch.nn.MSELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr = params['learning_rate'])
 
         print("Iniciando o treinamento do modelo...")
         y_true_inversed, y_pred_inversed, epoch_loss, metrics = None, None, None, None
+
         for epoch in range(params['epochs']):
             model.train()
             for seqs, labels in train_loader:
+                seqs, labels = seqs.to(device), labels.to(device)
                 optimizer.zero_grad()
                 outputs = model(seqs)
                 loss = criterion(outputs, labels)
@@ -129,26 +142,25 @@ def train_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_
             with torch.no_grad():
                 all_outputs_scaled = model(X_train_tensor)
                 epoch_loss = criterion(all_outputs_scaled, y_train_tensor).item()
-                y_true_inversed = scaler.inverse_transform(y_train_tensor.numpy())
-                y_pred_inversed = scaler.inverse_transform(all_outputs_scaled.numpy())
+                
+                y_true_inversed = scaler.inverse_transform(y_train_tensor.cpu().numpy())
+                y_pred_inversed = scaler.inverse_transform(all_outputs_scaled.cpu().numpy())
                 metrics = calculate_metrics(y_true_inversed, y_pred_inversed)
                 
-                mlflow.log_metric("train_loss", epoch_loss, step=epoch)
-                mlflow.log_metrics({
-                    "train_rmse": metrics["train_rmse"],
-                    "train_mae": metrics["train_mae"]
-                }, step = epoch)
+                mlflow.log_metric("train_loss", epoch_loss, step = epoch)
+                mlflow.log_metric("train_rmse", metrics["train_rmse"], step = epoch)
+                mlflow.log_metric("train_mae", metrics["train_mae"], step = epoch)
 
             if (epoch + 1) % 10 == 0:
-                print(f'Epoch [{epoch + 1}/{params["epochs"]}], Loss: {epoch_loss:.4f}, RMSE: {metrics["train_rmse"]:.2f}')
+                print(f'Epoch [{epoch + 1}/{params["epochs"]}], Loss: {epoch_loss:.8f}, RMSE: {metrics["train_rmse"]:.2f}')
         
         print("Treinamento concluído. Salvando modelo e artefatos...")
-        
+
         with tempfile.TemporaryDirectory() as tmp_dir:
             scaler_path = os.path.join(tmp_dir, "scaler.pkl")
             joblib.dump(scaler, scaler_path)
             
-            fig, ax = plt.subplots(figsize = (12, 6))
+            fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(y_true_inversed, label = 'Valores Reais')
             ax.plot(y_pred_inversed, label = 'Previsões', linestyle='--')
             ax.set_title(f'Previsões vs. Reais - {run_name}')
@@ -157,17 +169,11 @@ def train_model(params: dict, state: str, X_train_tensor: torch.Tensor, y_train_
             fig.savefig(plot_path)
             plt.close(fig)
 
-            mlflow.pytorch.log_model(
-                pytorch_model = model,
-                artifact_path = "model"
-            )
-
+            mlflow.pytorch.log_model(model, artifact_path = "model")
             mlflow.log_artifact(scaler_path, artifact_path = "preprocessor")
             mlflow.log_artifact(plot_path, artifact_path = "plots")
 
-
         print(f"Modelo e artefatos salvos com sucesso para a run: {run_id}")
-
 
 def run_experiments(state: str):
     """Orquestra todo o processo de experimentação para um único estado."""
