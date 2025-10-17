@@ -30,4 +30,4 @@ class CasoCovid(ModelBase):
 
     def __repr__(self) -> str:
         city_name = self.city or 'N/A (Estado)'
-        return f"<CasoCovid(id={self.id}, date='{self.date}', state='{self.state}', city='{city_name}')>"
+        return f"<CasoCovid(id={self.id}, date='{self.datetime}', state='{self.state}', city='{city_name}')>"
