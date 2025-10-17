@@ -4,6 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from typing import AsyncGenerator 
 
 from src.models.casos_covid import ModelBase
 
@@ -14,7 +15,7 @@ DB_URL = os.getenv("DATABASE_URL")
 if not DB_URL:
     raise ValueError("A variável de ambiente DATABASE_URL não foi definida ou lida corretamente!")
 
-async_engine: AsyncEngine = create_async_engine(url=DB_URL, echo=False)
+async_engine: AsyncEngine = create_async_engine(url = DB_URL, echo = False)
 
 AsyncSessionLocal = sessionmaker(
     bind = async_engine,
@@ -23,7 +24,7 @@ AsyncSessionLocal = sessionmaker(
 )
 
 sync_db_url = DB_URL.replace("postgresql+asyncpg", "postgresql+psycopg2")
-sync_engine: Engine = create_engine(url=sync_db_url, echo=False)
+sync_engine: Engine = create_engine(url = sync_db_url, echo = False)
 
 def get_async_session() -> AsyncSession:
     """Retorna uma nova instância de sessão assíncrona da fábrica."""
@@ -36,3 +37,10 @@ async def create_tables_async() -> None:
         await conn.run_sync(ModelBase.metadata.create_all)
     print("Tabelas criadas com sucesso.")
 
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Dependency para FastAPI.
+    Cria uma sessão assíncrona, fornece-a para o endpoint e garante o fechamento ao final.
+    """
+    async with AsyncSessionLocal() as session:
+        yield session
