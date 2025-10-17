@@ -9,33 +9,27 @@ from src.api.v1.services.forecast_service import get_prediction_for_state, get_f
 
 router: APIRouter = APIRouter()
 
-@router.post(
-    "/predict/{state_code}", 
-    response_model = PredictionResponse, 
-    summary = "Obtém uma previsão para o próximo dia"
-)
+@router.post("/predict/{state_code}", response_model = PredictionResponse, summary = "Obtém uma previsão para o próximo dia")
 def predict_next_day(
     payload: PredictionRequest,
-    state_code: str = Path(
-        min_length = 2, max_length = 2, example = "CE", description = "Sigla do estado (UF)"
-    )
+    state_code: str = Path(min_length = 2, max_length = 2, example = "CE")
 ):
-    """
-    Recebe uma sequência de dados de novos casos confirmados e retorna a previsão
-    para o dia seguinte. O tamanho da sequência deve corresponder ao esperado
-    pelo melhor modelo treinado para o estado.
-    """
     try:
-
         prediction = get_prediction_for_state(state_code.upper(), payload.sequence)
         if not prediction:
             raise HTTPException(status_code = 404, detail = f"Modelo para o estado {state_code} não encontrado.")
         return prediction
+
     except ValueError as e:
         raise HTTPException(status_code = 400, detail = str(e))
+
+    except HTTPException:
+        raise
+
     except Exception as e:
         print(f"Erro inesperado em predict_next_day: {e}")
-        raise HTTPException(status_code = 500, detail = "Ocorreu um erro interno ao processar a previsão.")
+        raise HTTPException(status_code = 500, detail="Ocorreu um erro interno ao processar a previsão.")
+
 
 
 @router.get(
