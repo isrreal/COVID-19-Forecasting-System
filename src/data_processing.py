@@ -8,6 +8,7 @@ import requests
 import io
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import MinMaxScaler
+from unidecode import unidecode
 
 DATA_PATH = "data/caso_full.csv"
 TABLE_NAME = CasoCovid.__tablename__
@@ -71,32 +72,56 @@ def extract_data(data_path: str, url: str) -> pd.DataFrame | None:
 def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aplica todas as transformações e limpezas necessárias aos dados.
+    CORRIGIDO: Agora processa CIDADES em vez de apenas estados.
     """
     print("\n--- Etapa de Transformação (T) ---")
     print("Iniciando limpeza e transformação dos dados...")
+
+    df_copy = df.copy()
+
+    if 'city' in df_copy.columns:
+        print("Normalizando nomes de cidades (minúsculas e sem acentos)...")
+        df_copy['city'] = df_copy['city'].apply(
+            lambda x: unidecode(x).lower() if pd.notna(x) else x
+        )
+        print("Normalização de cidades concluída.")
+
+    df_copy['date'] = pd.to_datetime(df_copy['date'], errors = 'coerce')
+
+    print("Filtrando dados para manter apenas registros a nível de CIDADE...")
+    df_cities = df_copy[df_copy['place_type'] == 'city'].copy()
     
-    df_states = df[df['place_type'] == 'state'].copy()
-    
-    print("Convertendo e imputando datas ausentes por interpolação...")
-    df_states['date'] = pd.to_datetime(df_states['date'], errors = 'coerce')
-    df_states = df_states.sort_values(by = ['state', 'date'])
-    df_states['date'] = df_states.groupby('state')['date'].transform(
-        lambda x: x.interpolate(method='linear').ffill().bfill()
+    print("Removendo registros com city vazio ou 'N/A'...")
+    initial_count = len(df_cities)
+    df_cities = df_cities[
+        df_cities['city'].notna() & 
+        (df_cities['city'] != '') & 
+        (df_cities['city'] != 'n/a')
+    ].copy()
+    removed_count = initial_count - len(df_cities)
+    print(f"Removidos {removed_count} registros com city inválido. Restantes: {len(df_cities)}")
+
+    print("Imputando datas ausentes por interpolação...")
+    df_cities = df_cities.sort_values(by = ['state', 'city', 'date'])
+    df_cities['date'] = df_cities.groupby(['state', 'city'])['date'].transform(
+        lambda x: x.interpolate(method = 'linear').ffill().bfill()
     )
-    df_states.dropna(subset = ['date'], inplace = True)
-    df_states['date'] = df_states['date'].dt.date
+    df_cities.dropna(subset = ['date'], inplace = True)
+    df_cities['date'] = df_cities['date'].dt.date
     print("Imputação de datas concluída.")
 
     print("Imputando valores de população ausentes...")
     cols_to_fill_pop = ['estimated_population', 'estimated_population_2019']
-    df_states[cols_to_fill_pop] = df_states.groupby('state')[cols_to_fill_pop].transform(lambda x: x.ffill().bfill())
-    df_states.dropna(subset = cols_to_fill_pop, inplace = True)
+    df_cities[cols_to_fill_pop] = df_cities.groupby(['state', 'city'])[cols_to_fill_pop].transform(
+        lambda x: x.ffill().bfill()
+    )
+    df_cities.dropna(subset = cols_to_fill_pop, inplace = True)
     print("Imputação de população concluída.")
 
     target_col = 'last_available_confirmed_per_100k_inhabitants'
-    if df_states[target_col].isnull().any():
+    if df_cities[target_col].isnull().any():
         print(f"Imputando a coluna '{target_col}' com KNNImputer...")
-        df_states['date_ordinal'] = df_states['date'].apply(lambda x: x.toordinal())
+        df_cities['date_ordinal'] = df_cities['date'].apply(lambda x: x.toordinal())
         
         features_for_knn = [
             'date_ordinal', 'estimated_population', 'last_available_confirmed',
@@ -104,45 +129,62 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
         ]
         
         helper_cols = [col for col in features_for_knn if col != target_col]
-        df_states[helper_cols] = df_states.groupby('state')[helper_cols].transform(lambda x: x.ffill().bfill())
-        df_states.dropna(subset = helper_cols, inplace = True)
+        df_cities[helper_cols] = df_cities.groupby(['state', 'city'])[helper_cols].transform(
+            lambda x: x.ffill().bfill()
+        )
+        df_cities.dropna(subset = helper_cols, inplace = True)
 
         imputed_dfs = []
-        for state, group in df_states.groupby('state'):
+        for (state, city), group in df_cities.groupby(['state', 'city']):
             group_copy = group.copy()
             original_index = group_copy.index
             group_features = group_copy[features_for_knn]
             
             if group_features.isnull().values.any():
                 scaler = MinMaxScaler()
-                group_scaled = pd.DataFrame(scaler.fit_transform(group_features), columns = features_for_knn)
+                group_scaled = pd.DataFrame(
+                    scaler.fit_transform(group_features), 
+                    columns = features_for_knn
+                )
                 
-                imputer = KNNImputer(n_neighbors = 5)
-                group_imputed_scaled = pd.DataFrame(imputer.fit_transform(group_scaled), columns = features_for_knn)
+                imputer = KNNImputer(n_neighbors=5)
+                group_imputed_scaled = pd.DataFrame(
+                    imputer.fit_transform(group_scaled), 
+                    columns = features_for_knn
+                )
                 
                 group_imputed = pd.DataFrame(
                     scaler.inverse_transform(group_imputed_scaled),
                     columns = features_for_knn,
-                    index = original_index)
+                    index = original_index
+                )
                 imputed_dfs.append(group_imputed)
             else:
                 imputed_dfs.append(group_features.set_index(original_index))
 
         if imputed_dfs:
             df_imputed_full = pd.concat(imputed_dfs)
-            df_states[target_col] = df_imputed_full[target_col]
+            df_cities[target_col] = df_imputed_full[target_col]
 
-        df_states.drop(columns=['date_ordinal'], inplace=True)
+        df_cities.drop(columns=['date_ordinal'], inplace=True)
         print("Imputação com KNN concluída.")
 
-    df_states['city_ibge_code'] = pd.to_numeric(df_states['city_ibge_code'], errors = 'coerce').astype('Int64')
-
-    df_states.rename(columns = {'date': 'datetime'}, inplace = True)
+    df_cities['city_ibge_code'] = pd.to_numeric(
+        df_cities['city_ibge_code'], 
+        errors = 'coerce'
+    ).astype('Int64')
+    
+    df_cities.rename(columns = {'date': 'datetime'}, inplace = True)
 
     model_columns = [c.name for c in CasoCovid.__table__.columns if c.name != 'id']
-    df_to_load = df_states.reindex(columns = model_columns)
+    df_to_load = df_cities.reindex(columns = model_columns)
     
-    print("Transformação de dados concluída.")
+    if 'city' in df_to_load.columns:
+        print(f"Coluna 'city' presente com {df_to_load['city'].notna().sum()} valores válidos")
+    else:
+        print("AVISO: Coluna 'city' não está no DataFrame final!")
+    
+    print(f"Transformação de dados concluída. Total de registros: {len(df_to_load)}")
     return df_to_load
 
 def load_data(df: pd.DataFrame, table_name: str, engine):
@@ -189,6 +231,13 @@ def main_etl_pipeline():
     if df_raw is None:
         print("Falha na extração de dados. Abortando o pipeline.")
         return
+    
+    print(f"\nEstatísticas do dataset bruto:")
+    print(f"  Total de registros: {len(df_raw)}")
+    if 'place_type' in df_raw.columns:
+        print(f"  Registros de cidades: {(df_raw['place_type'] == 'city').sum()}")
+        print(f"  Registros de estados: {(df_raw['place_type'] == 'state').sum()}")
+    
     colunas_vazias(df_raw, stage = "Dados Brutos")
 
     df_transformed = transform_data(df_raw)
