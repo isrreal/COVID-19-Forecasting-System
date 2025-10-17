@@ -21,3 +21,5 @@ feature_engineering.py
 predict.py
 data/
 docker-commands.txt
+
+.coverage
