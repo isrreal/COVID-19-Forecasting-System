@@ -445,7 +445,6 @@ Modelo e artefatos salvos com sucesso!
 |---------|-----|-------------|
 | **API Documentation (Swagger)** | http://localhost:8000/docs | Interactive API documentation with live testing |
 | **MLflow UI** | http://localhost:5000 | Experiment tracking, model comparison, and registry |
-| **API Health Check** | http://localhost:8000/health | Service status endpoint |
 | **API (Direct)** | http://localhost:8000 | Main API endpoint |
 
 ---
@@ -578,6 +577,88 @@ curl -X POST "http://localhost:8000/api/v1/forecast/predict/CE" \
 ```
 
 **Use Case**: This endpoint is useful when you have your own recent data and want a single-step prediction without relying on the database.
+
+---
+
+
+
+---
+
+## 🧪 Testing
+
+### Test Coverage
+
+The project includes comprehensive testing across multiple layers:
+
+#### **Unit Tests**
+
+- **API Endpoint Tests** (`tests/.../test_forecast_router.py`)
+  - GET `/api/v1/forecast/{state_code}` response validation
+  - POST `/api/v1/forecast/predict/{state_code}` with custom sequences
+  - Error handling for invalid states and malformed requests
+  - Model loading and caching mechanisms
+
+### Running Tests
+```bash
+# Run all tests
+docker compose run app_runner pytest
+
+```
+
+### Test Configuration
+
+#### **pytest.ini**
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+addopts = 
+    --verbose
+    --strict-markers
+    --tb=short
+    --cov=src
+    --cov-report=term-missing
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
+    unit: marks tests as unit tests
+```
+
+### Example Test Output
+```bash
+$ docker compose run app_runner pytest --cov=src tests/
+
+========================= test session starts ==========================
+platform linux -- Python 3.10.12, pytest-7.4.3, pluggy-1.3.0
+rootdir: /app
+plugins: cov-4.1.0, anyio-3.7.1
+collected 42 items
+
+tests/test_models.py ..................                          [ 42%]
+tests/test_etl.py ............                                   [ 71%]
+tests/test_api.py ............                                   [100%]
+
+---------- coverage: platform linux, python 3.10.12 -----------
+Name                              Stmts   Miss  Cover   Missing
+---------------------------------------------------------------
+src/__init__.py                       0      0   100%
+src/data/data_processing.py         156     12    92%   245-256
+src/models/neural_networks.py        89      5    94%   78-82
+src/training/train.py               203     18    91%   156-173
+src/inference/service.py             67      3    96%   45-47
+---------------------------------------------------------------
+TOTAL                               515     38    93%
+
+========================== 42 passed in 12.34s ==========================
+```
+
+### Debugging Failed Tests
+```bash
+# Run with Python debugger (pdb)
+docker compose run app_runner pytest 
+```
 
 ---
 
@@ -743,16 +824,6 @@ Contributions are welcome! Please follow these steps:
   - Create confidence intervals for predictions (e.g., 95% prediction intervals)
   - Implement cross-validation with time-series split for robust evaluation
   - Add A/B testing framework to compare model versions in production
-
-### 🧪 Testing & Quality Assurance
-- **Comprehensive Testing Suite**
-  - `GET /health` - Service health check with dependency status
-  - `GET /api/v1/test/integration` - End-to-end pipeline validation
-  - `POST /api/v1/test/predict` - Mock prediction endpoint for testing
-  - Unit tests for all data processing functions
-  - Integration tests for ETL pipeline stages
-  - Load testing for API performance benchmarks
-  - Model performance regression tests
 
 ### 📈 Advanced Analytics & Insights
 - **Statistical Analysis Routes**
