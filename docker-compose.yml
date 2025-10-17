@@ -61,7 +61,8 @@ services:
   app_runner:
     build: .
     container_name: covid_app_runner
-    user: appuser
+    user: "${UID}:${GID}"
+ 
     volumes:
       - .:/app
       - mlflow_artifacts:/mlflow/artifacts
