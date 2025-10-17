@@ -7,7 +7,6 @@ from sqlalchemy.orm import sessionmaker
 
 from src.models.casos_covid import ModelBase
 
-# load_dotenv() já não é estritamente necessário se o docker-compose injetar a variável
 load_dotenv()
 
 DB_URL = os.getenv("DATABASE_URL")
