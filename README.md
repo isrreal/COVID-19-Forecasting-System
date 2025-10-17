@@ -311,13 +311,16 @@ flowchart TD
 │   ├── predict.py
 │   └── train.py
 ├── .dockerignore
+├── tests/
 ├── .env
 ├── .gitignore
 ├── database.py
 ├── docker-compose.yml             # Container orchestration
 ├── Dockerfile                     # API container definition
+├── LICENSE
 ├── main_workflow.py
 ├── main.py
+├── pytest.ini
 └── requirements.txt               # Python dependencies
 
 ```
@@ -360,6 +363,8 @@ MLFLOW_TRACKING_URI=http://mlflow:5000
 GIT_PYTHON_REFRESH=quiet
 PYTHONWARNINGS=ignore
 MPLCONFIGDIR=/tmp/matplotlib_cache
+UID=1000
+GID=1000
 ```
 
 3. **Start the Services**
