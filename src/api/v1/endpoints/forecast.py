@@ -28,7 +28,7 @@ def predict_next_day(
 
     except Exception as e:
         print(f"Erro inesperado em predict_next_day: {e}")
-        raise HTTPException(status_code = 500, detail="Ocorreu um erro interno ao processar a previsão.")
+        raise HTTPException(status_code = 500, detail = "Ocorreu um erro interno ao processar a previsão.")
 
 
 
