@@ -68,121 +68,93 @@ def extract_data(data_path: str, url: str) -> pd.DataFrame | None:
     except requests.exceptions.RequestException as e:
         print(f"Erro ao baixar ou processar o arquivo: {e}")
         return None
+def normalize_city_names(df: pd.DataFrame, city_col: str = 'city') -> pd.DataFrame:
+    if city_col in df.columns:
+        df[city_col] = df[city_col].astype(str).str.strip().str.lower().map(unidecode)
+    return df
 
-def transform_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aplica todas as transformações e limpezas necessárias aos dados.
-    CORRIGIDO: Agora processa CIDADES em vez de apenas estados.
-    """
-    print("\n--- Etapa de Transformação (T) ---")
-    print("Iniciando limpeza e transformação dos dados...")
+def filter_valid_cities(df: pd.DataFrame, city_col: str = 'city') -> pd.DataFrame:
+    initial_count = len(df)
+    df[city_col] = df[city_col].replace(['', 'n/a', 'na', 'nan'], pd.NA)
+    df_filtered = df[df[city_col].notna()].copy()
+    removed_count = initial_count - len(df_filtered)
+    print(f"Removidos {removed_count} registros com city inválido. Restantes: {len(df_filtered)}")
+    return df_filtered
 
-    df_copy = df.copy()
-
-    if 'city' in df_copy.columns:
-        print("Normalizando nomes de cidades (minúsculas e sem acentos)...")
-        df_copy['city'] = df_copy['city'].apply(
-            lambda x: unidecode(x).lower() if pd.notna(x) else x
-        )
-        print("Normalização de cidades concluída.")
-
-    df_copy['date'] = pd.to_datetime(df_copy['date'], errors = 'coerce')
-
-    print("Filtrando dados para manter apenas registros a nível de CIDADE...")
-    df_cities = df_copy[df_copy['place_type'] == 'city'].copy()
-    
-    print("Removendo registros com city vazio ou 'N/A'...")
-    initial_count = len(df_cities)
-    df_cities = df_cities[
-        df_cities['city'].notna() & 
-        (df_cities['city'] != '') & 
-        (df_cities['city'] != 'n/a')
-    ].copy()
-    removed_count = initial_count - len(df_cities)
-    print(f"Removidos {removed_count} registros com city inválido. Restantes: {len(df_cities)}")
-
-    print("Imputando datas ausentes por interpolação...")
-    df_cities = df_cities.sort_values(by = ['state', 'city', 'date'])
-    df_cities['date'] = df_cities.groupby(['state', 'city'])['date'].transform(
+def impute_dates(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.sort_values(['state', 'city', 'date'])
+    df['date'] = df.groupby(['state', 'city'])['date'].transform(
         lambda x: x.interpolate(method = 'linear').ffill().bfill()
     )
-    df_cities.dropna(subset = ['date'], inplace = True)
-    df_cities['date'] = df_cities['date'].dt.date
-    print("Imputação de datas concluída.")
+    df.dropna(subset = ['date'], inplace = True)
+    df['date'] = df['date'].dt.date
+    return df
 
-    print("Imputando valores de população ausentes...")
+def impute_population(df: pd.DataFrame) -> pd.DataFrame:
     cols_to_fill_pop = ['estimated_population', 'estimated_population_2019']
-    df_cities[cols_to_fill_pop] = df_cities.groupby(['state', 'city'])[cols_to_fill_pop].transform(
+    df[cols_to_fill_pop] = df.groupby(['state', 'city'])[cols_to_fill_pop].transform(
         lambda x: x.ffill().bfill()
     )
-    df_cities.dropna(subset = cols_to_fill_pop, inplace = True)
-    print("Imputação de população concluída.")
+    df.dropna(subseb = cols_to_fill_pop, inplace = True)
+    return df
 
+def knn_impute(df: pd.DataFrame, target_col: str, features_for_knn: list, group_cols = ['state','city'], n_neighbors = 5) -> pd.DataFrame:
+    df['date_ordinal'] = pd.to_datetime(df['date']).view('int64') // 10 ** 19
+    helper_cols = [col for col in features_for_knn if col != target_col]
+    
+    df[helper_cols] = df.groupby(group_cols)[helper_cols].ffill().bfill()
+    df.dropna(subset = helper_cols, inplace = True)
+    
+    imputed_dfs = []
+    for (_, _), group in df.groupby(group_cols):
+        group = group.copy()
+        index = group.index
+        features = group[features_for_knn]
+        if features.isnull().values.any():
+            scaler = MinMaxScaler()
+            scaled = pd.DataFrame(scaler.fit_transform(features), columns = features_for_knn, index = index)
+            imputer = KNNImputer(n_neighbors=n_neighbors)
+            imputed_scaled = pd.DataFrame(imputer.fit_transform(scaled), columns=features_for_knn, index = index)
+            group_imputed = pd.DataFrame(scaler.inverse_transform(imputed_scaled), columns = features_for_knn, index = index)
+            imputed_dfs.append(group_imputed)
+        else:
+            imputed_dfs.append(features)
+    df[target_col] = pd.concat(imputed_dfs)[target_col]
+    df.drop(columns = ['date_ordinal'], inplace = True)
+    return df
+
+def prepare_for_orm(df: pd.DataFrame, model_cls) -> pd.DataFrame:
+    model_columns = [c.name for c in model_cls.__table__.columns if c.name != 'id']
+    df_final = (
+        df
+        .assign(city_ibge_code = lambda x: pd.to_numeric(x['city_ibge_code'], errors = 'coerce').astype('Int64'))
+        .rename(columns = {'date': 'datetime'})
+        .reindex(columns = model_columns)
+    )
+    return df_final
+
+def transform_data(df: pd.DataFrame) -> pd.DataFrame:
+    print("\n--- Etapa de Transformação (T) ---")
+    
+    df_copy = df.copy()
+    df_copy = normalize_city_names(df_copy)
+    
+    df_cities = df_copy[df_copy['place_type'] == 'city'].copy()
+    df_cities = filter_valid_cities(df_cities)
+    
+    df_cities['date'] = pd.to_datetime(df_cities['date'], errors = 'coerce')
+    df_cities = impute_dates(df_cities)
+    df_cities = impute_population(df_cities)
+    
     target_col = 'last_available_confirmed_per_100k_inhabitants'
     if df_cities[target_col].isnull().any():
-        print(f"Imputando a coluna '{target_col}' com KNNImputer...")
-        df_cities['date_ordinal'] = df_cities['date'].apply(lambda x: x.toordinal())
-        
         features_for_knn = [
             'date_ordinal', 'estimated_population', 'last_available_confirmed',
             'new_confirmed', 'last_available_deaths', target_col
         ]
-        
-        helper_cols = [col for col in features_for_knn if col != target_col]
-        df_cities[helper_cols] = df_cities.groupby(['state', 'city'])[helper_cols].transform(
-            lambda x: x.ffill().bfill()
-        )
-        df_cities.dropna(subset = helper_cols, inplace = True)
-
-        imputed_dfs = []
-        for (state, city), group in df_cities.groupby(['state', 'city']):
-            group_copy = group.copy()
-            original_index = group_copy.index
-            group_features = group_copy[features_for_knn]
-            
-            if group_features.isnull().values.any():
-                scaler = MinMaxScaler()
-                group_scaled = pd.DataFrame(
-                    scaler.fit_transform(group_features), 
-                    columns = features_for_knn
-                )
-                
-                imputer = KNNImputer(n_neighbors=5)
-                group_imputed_scaled = pd.DataFrame(
-                    imputer.fit_transform(group_scaled), 
-                    columns = features_for_knn
-                )
-                
-                group_imputed = pd.DataFrame(
-                    scaler.inverse_transform(group_imputed_scaled),
-                    columns = features_for_knn,
-                    index = original_index
-                )
-                imputed_dfs.append(group_imputed)
-            else:
-                imputed_dfs.append(group_features.set_index(original_index))
-
-        if imputed_dfs:
-            df_imputed_full = pd.concat(imputed_dfs)
-            df_cities[target_col] = df_imputed_full[target_col]
-
-        df_cities.drop(columns=['date_ordinal'], inplace=True)
-        print("Imputação com KNN concluída.")
-
-    df_cities['city_ibge_code'] = pd.to_numeric(
-        df_cities['city_ibge_code'], 
-        errors = 'coerce'
-    ).astype('Int64')
+        df_cities = knn_impute(df_cities, target_col, features_for_knn)
     
-    df_cities.rename(columns = {'date': 'datetime'}, inplace = True)
-
-    model_columns = [c.name for c in CasoCovid.__table__.columns if c.name != 'id']
-    df_to_load = df_cities.reindex(columns = model_columns)
-    
-    if 'city' in df_to_load.columns:
-        print(f"Coluna 'city' presente com {df_to_load['city'].notna().sum()} valores válidos")
-    else:
-        print("AVISO: Coluna 'city' não está no DataFrame final!")
+    df_to_load = prepare_for_orm(df_cities, CasoCovid)
     
     print(f"Transformação de dados concluída. Total de registros: {len(df_to_load)}")
     return df_to_load
