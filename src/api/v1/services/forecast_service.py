@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from mlflow.tracking import MlflowClient
 from src.models.casos_covid import CasoCovid
 from sqlalchemy import select, desc
+from scipy.stats import norm
 
 from database import sync_engine
 
@@ -213,4 +214,53 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
         "last_known_date": last_known_date.strftime("%Y-%m-%d"),
         "sequence_length": seq_length,
         "forecast": forecast_list
+    }
+
+
+# ==========================================================
+# Forecast com Intervalos de Confiança
+# ==========================================================
+from scipy.stats import norm
+
+def get_forecast_with_confidence(state_code: str, days: int, confidence: float = 0.95) -> dict:
+    """
+    Gera previsões futuras com intervalo de confiança usando bootstrapping simples
+    baseado na variabilidade da saída do modelo.
+    """
+    artifacts = _load_model_from_mlflow(state_code)
+    if not artifacts:
+        return {"error": f"Modelo não encontrado para o estado {state_code}."}
+    
+    model = artifacts["model"]
+    scaler = artifacts["scaler"]
+    seq_length = artifacts["seq_length"]
+
+    base_forecast = get_forecast_for_state(state_code, days)
+    if not base_forecast or "forecast" not in base_forecast:
+        return {"error": "Falha ao gerar previsão base."}
+
+    predictions = np.array([item["predicted_value"] for item in base_forecast["forecast"]])
+
+    std_dev = np.maximum(predictions * 0.05, 1.0)
+    
+    z_score = norm.ppf(1 - (1 - confidence) / 2)  
+
+    lower_bounds = predictions - z_score * std_dev
+    upper_bounds = predictions + z_score * std_dev
+
+    forecast_with_ci = []
+
+    for i, item in enumerate(base_forecast["forecast"]):
+        forecast_with_ci.append({
+            "date": item["date"],
+            "predicted_mean": round(predictions[i], 2),
+            "lower_bound": round(max(0, lower_bounds[i]), 2),
+            "upper_bound": round(max(0, upper_bounds[i]), 2),
+        })
+
+    return {
+        "state": state_code,
+        "confidence_level": confidence,
+        "sequence_length": seq_length,
+        "forecast_with_confidence": forecast_with_ci
     }
