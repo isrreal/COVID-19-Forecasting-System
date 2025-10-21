@@ -226,7 +226,8 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
         chi2, p, dof, expected = chi2_contingency(contingency)
 
         significance_level = 0.05
-        reject = p < significance_level
+        reject = bool(p < significance_level)  
+
         interpretation = (
             f"Existe associação estatisticamente significativa entre estado e ocorrência de mortes (p < {significance_level})"
             if reject else
@@ -240,7 +241,7 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
             "p_value": float(p),
             "degrees_of_freedom": int(dof),
             "significance_level": significance_level,
-            "reject_null_hypothesis": reject,
+            "reject_null_hypothesis": reject,  
             "interpretation": interpretation,
             "contingency_table": contingency.to_dict(),
             "expected_frequencies": expected.tolist(),
