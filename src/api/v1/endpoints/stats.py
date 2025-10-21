@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
-from src.database import get_async_session
+from database import get_async_session
 from src.api.v1.services import stats_service
 import logging
 
@@ -82,4 +82,25 @@ async def get_most_deadly_cities(limit: int = 10, db: AsyncSession = Depends(get
 
     except Exception as e:
         logger.exception(f"Erro inesperado ao buscar cidades mais letais: {e}")
+        raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")
+
+@router.get("/least-affected-cities")
+async def get_least_affected_cities(limit: int = 10, db: AsyncSession = Depends(get_async_session)):
+    """
+    Retorna as cidades com menor número de casos confirmados acumulados.
+    """
+    try:
+        result = await stats_service.get_least_affected_cities(limit, db)
+
+        if isinstance(result, dict) and "error" in result:
+            raise HTTPException(status_code = 500, detail = result["error"])
+
+        return {"data": result}
+
+    except SQLAlchemyError as e:
+        logger.exception(f"Erro de banco de dados ao buscar cidades menos afetadas: {e}")
+        raise HTTPException(status_code = 500, detail = "Erro ao acessar o banco de dados.")
+
+    except Exception as e:
+        logger.exception(f"Erro inesperado ao buscar cidades menos afetadas: {e}")
         raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")

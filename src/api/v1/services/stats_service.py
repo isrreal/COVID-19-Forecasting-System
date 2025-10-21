@@ -156,6 +156,38 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession) -> Union[Lis
         logger.exception("Erro ao buscar cidades mais letais.")
         return {"error": "Não foi possível obter as cidades mais letais."}
 
+# ==========================================================
+# Cidades menos letais
+# ==========================================================
+async def get_least_affected_cities(limit: int, session: AsyncSession):
+    """
+    Retorna as cidades com menor número de casos confirmados acumulados.
+    """
+    try:
+        result = await session.execute(
+            select(
+                CasoCovid.city,
+                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
+            )
+            .where(CasoCovid.city.isnot(None))
+            .group_by(CasoCovid.city)
+            .order_by(func.sum(CasoCovid.last_available_confirmed).asc())  
+            .limit(limit)
+        )
+
+        rows = result.mappings().all()
+
+        return [
+            {
+                "city": row["city"],
+                "total_confirmed": float(row["total_confirmed"]) if row["total_confirmed"] else 0
+            }
+            for row in rows
+        ]
+
+    except SQLAlchemyError as e:
+        logger.error(f"Erro ao buscar cidades menos afetadas: {e}")
+        return {"error": "Não foi possível obter as cidades com menos casos confirmados."}
 
 # ==========================================================
 # Teste Qui-quadrado entre estado e ocorrência de mortes
