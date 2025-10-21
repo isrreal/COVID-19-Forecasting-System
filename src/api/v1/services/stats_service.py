@@ -1,9 +1,15 @@
+# stats_service.py
+
 import logging
 from typing import List, Dict, Union
 
 import pandas as pd
+# CORREÇÃO: Importações movidas para o topo
+import numpy as np
+from scipy import stats
 from scipy.stats import chi2_contingency
-from sqlalchemy import func, select
+# CORREÇÃO: Adicionadas importações 'case' e 'coalesce'
+from sqlalchemy import func, select, case
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from unidecode import unidecode
@@ -51,6 +57,7 @@ async def get_summary_stats(session: AsyncSession) -> Dict[str, Union[int, float
 async def get_city_stats(city_name: str, state: str, session: AsyncSession) -> Dict[str, Union[str, float]]:
     """
     Retorna estatísticas agregadas para uma cidade e estado específicos.
+    Assume que a coluna 'city' no banco de dados está normalizada (lowercase, sem acentos).
     """
     normalized_city_name = unidecode(city_name).lower()
     logger.info(f"Buscando estatísticas para a cidade: {normalized_city_name}, estado: {state}")
@@ -128,22 +135,30 @@ async def get_top_cities(limit: int, session: AsyncSession) -> Union[List[Dict[s
 # ==========================================================
 async def get_most_deadly_cities(limit: int, session: AsyncSession):
     """
-    Retorna as cidades com o maior número acumulado de mortes,
-    incluindo o estado correspondente.
+    Retorna as cidades com a maior TAXA DE MORTALIDADE (mortes / confirmados).
+    Inclui o estado correspondente.
     """
     try:
+        mortality_rate = (
+            func.sum(CasoCovid.last_available_deaths) / 
+            func.sum(CasoCovid.last_available_confirmed)
+        ).label("mortality_rate")
+
         result = await session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths")
+                mortality_rate,
+                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
+                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
             )
             .where(
                 CasoCovid.city.isnot(None),
                 CasoCovid.city != "N/A"
             )
-            .group_by(CasoCovid.city, CasoCovid.state)  
-            .order_by(func.sum(CasoCovid.last_available_deaths).desc())  
+            .group_by(CasoCovid.city, CasoCovid.state)
+            .having(func.sum(CasoCovid.last_available_confirmed) > 0)
+            .order_by(mortality_rate.desc())
             .limit(limit)
         )
 
@@ -153,7 +168,9 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession):
             {
                 "city": row["city"],
                 "state": row["state"],
-                "total_deaths": float(row["total_deaths"] or 0)
+                "mortality_rate": float(row["mortality_rate"] or 0),
+                "total_deaths": float(row["total_deaths"] or 0),
+                "total_confirmed": float(row["total_confirmed"] or 0)
             }
             for row in rows
         ]
@@ -164,26 +181,36 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession):
 
 
 # ==========================================================
-# Cidades menos afetadas
+# Cidades menos letais
 # ==========================================================
 async def get_least_affected_cities(limit: int, session: AsyncSession):
     """
-    Retorna as cidades com menor número de casos confirmados acumulados.
-    Inclui também o estado correspondente.
+    Retorna as cidades com a menor TAXA DE MORTALIDADE (mortes / confirmados).
+    Inclui o estado correspondente.
     """
     try:
+        total_confirmed_agg = func.sum(CasoCovid.last_available_confirmed)
+        total_deaths_agg = func.sum(CasoCovid.last_available_deaths)
+        
+        mortality_rate = (
+            total_deaths_agg / total_confirmed_agg
+        ).label("mortality_rate")
+
         result = await session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
+                mortality_rate,
+                total_deaths_agg.label("total_deaths"),
+                total_confirmed_agg.label("total_confirmed")
             )
             .where(
                 CasoCovid.city.isnot(None),
                 CasoCovid.city != "N/A"
             )
-            .group_by(CasoCovid.city, CasoCovid.state)  
-            .order_by(func.sum(CasoCovid.last_available_confirmed).asc())
+            .group_by(CasoCovid.city, CasoCovid.state)
+            .having(total_confirmed_agg > 0)
+            .order_by(mortality_rate.asc())
             .limit(limit)
         )
 
@@ -193,14 +220,16 @@ async def get_least_affected_cities(limit: int, session: AsyncSession):
             {
                 "city": row["city"],
                 "state": row["state"],
-                "total_confirmed": row["total_confirmed"] or 0
+                "mortality_rate": float(row["mortality_rate"] or 0),
+                "total_deaths": float(row["total_deaths"] or 0),
+                "total_confirmed": float(row["total_confirmed"] or 0)
             }
             for row in rows
         ]
 
     except SQLAlchemyError:
-        logger.exception("Erro ao buscar cidades menos afetadas.")
-        return {"error": "Não foi possível obter as cidades com menos casos confirmados."}
+        logger.exception("Erro ao buscar cidades menos letais.")
+        return {"error": "Não foi possível obter as cidades com menor taxa de mortalidade."}
 
 # ==========================================================
 # Teste Qui-quadrado entre estado e ocorrência de mortes
@@ -241,7 +270,7 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
             "p_value": float(p),
             "degrees_of_freedom": int(dof),
             "significance_level": significance_level,
-            "reject_null_hypothesis": reject,  
+            "reject_null_hypothesis": reject, 
             "interpretation": interpretation,
             "contingency_table": contingency.to_dict(),
             "expected_frequencies": expected.tolist(),
@@ -253,3 +282,94 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
     except Exception:
         logger.exception("Erro inesperado ao realizar o teste qui-quadrado.")
         return {"error": "Erro inesperado ao realizar o teste estatístico."}
+
+
+# ==========================================================
+# Intervalos de Confiança
+# ==========================================================
+async def get_confidence_interval_cases(session: AsyncSession, confidence: float = 0.95):
+    """
+    Calcula o intervalo de confiança para a média de novos casos diários.
+    """
+    try:
+        # CORREÇÃO (PERFORMANCE): Calcula estatísticas no banco de dados
+        stmt = select(
+            func.avg(CasoCovid.new_confirmed).label("mean"),
+            func.stddev(CasoCovid.new_confirmed).label("stddev"),
+            func.count(CasoCovid.new_confirmed).label("n")
+        ).where(
+            CasoCovid.new_confirmed.isnot(None)
+        )
+        result = await session.execute(stmt)
+        row = result.mappings().one_or_none()
+
+        if not row or row["n"] < 2:
+            return {"error": "Dados insuficientes para calcular o intervalo de confiança."}
+
+        mean = float(row["mean"])
+        stddev = float(row["stddev"] or 0) # Garante que stddev não seja None
+        n = int(row["n"])
+
+        # Calcula o erro padrão da média (SEM)
+        sem = stddev / np.sqrt(n)
+        
+        # Calcula a margem de erro (h) usando a distribuição t de Student
+        h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
+
+        return {
+            "metric": "new_confirmed",
+            "mean": float(mean),
+            "confidence_level": confidence,
+            "lower_bound": float(mean - h),
+            "upper_bound": float(mean + h),
+            "n_samples": n
+        }
+
+    except SQLAlchemyError:
+        logger.exception("Erro ao calcular intervalo de confiança de novos casos.")
+        return {"error": "Erro de banco de dados ao calcular o intervalo de confiança de novos casos."}
+    except Exception:
+        logger.exception("Erro inesperado ao calcular intervalo de confiança de novos casos.")
+        return {"error": "Erro inesperado ao calcular o intervalo de confiança."}
+
+async def get_confidence_interval_deaths(session: AsyncSession, confidence: float = 0.95):
+    """
+    Calcula o intervalo de confiança para a média de novas mortes diárias.
+    """
+    try:
+        # CORREÇÃO (PERFORMANCE): Calcula estatísticas no banco de dados
+        stmt = select(
+            func.avg(CasoCovid.new_deaths).label("mean"),
+            func.stddev(CasoCovid.new_deaths).label("stddev"),
+            func.count(CasoCovid.new_deaths).label("n")
+        ).where(
+            CasoCovid.new_deaths.isnot(None)
+        )
+        result = await session.execute(stmt)
+        row = result.mappings().one_or_none()
+
+        if not row or row["n"] < 2:
+            return {"error": "Dados insuficientes para calcular o intervalo de confiança."}
+            
+        mean = float(row["mean"])
+        stddev = float(row["stddev"] or 0)
+        n = int(row["n"])
+
+        sem = stddev / np.sqrt(n)
+        h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
+
+        return {
+            "metric": "new_deaths",
+            "mean": float(mean),
+            "confidence_level": confidence,
+            "lower_bound": float(mean - h),
+            "upper_bound": float(mean + h),
+            "n_samples": n
+        }
+
+    except SQLAlchemyError:
+        logger.exception("Erro ao calcular intervalo de confiança de novas mortes.")
+        return {"error": "Erro de banco de dados ao calcular o intervalo de confiança de novas mortes."}
+    except Exception:
+        logger.exception("Erro inesperado ao calcular intervalo de confiança de novas mortes.")
+        return {"error": "Erro inesperado ao calcular o intervalo de confiança."}
