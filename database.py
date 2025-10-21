@@ -19,27 +19,19 @@ if not DB_URL:
 # -------------------------
 async_engine: AsyncEngine = create_async_engine(url = DB_URL, echo = False)
 
-AsyncSessionLocal = sessionmaker(
+async_session = sessionmaker(
     bind = async_engine,
     class_ = AsyncSession,
     expire_on_commit = False,
+    
 )
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency para FastAPI: retorna uma sessão assíncrona e garante o fechamento."""
-    async with AsyncSessionLocal() as session:
+    """
+    Dependency para FastAPI: retorna uma sessão assíncrona e garante o fechamento.
+    """
+    async with async_session() as session:  
         yield session
-
-async def create_tables_async() -> None:
-    """Cria tabelas usando o engine assíncrono."""
-    print("Criando tabelas no modo async...")
-    async with async_engine.begin() as conn:
-        await conn.run_sync(ModelBase.metadata.create_all)
-    print("Tabelas criadas com sucesso (async).")
-
-def get_async_session_instance() -> AsyncSession:
-    """Retorna uma instância de sessão assíncrona fora de FastAPI."""
-    return AsyncSessionLocal()
 
 # -------------------------
 # Sync Engine & Session
@@ -58,7 +50,7 @@ def get_sync_session() -> Session:
     """Retorna uma sessão síncrona para uso em ETL ou scripts."""
     return SyncSessionLocal()
 
-def create_tables_sync() -> None:
+def create_tables() -> None:
     """Cria tabelas usando o engine síncrono."""
     print("Criando tabelas no modo sync...")
     ModelBase.metadata.create_all(bind = sync_engine)
