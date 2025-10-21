@@ -71,43 +71,40 @@ def create_sequences(data, seq_length):
 def calculate_metrics(y_true, y_pred):
     """
     Calcula métricas de regressão, incluindo R2 (R-quadrado).
-    --- FUNÇÃO ATUALIZADA ---
     """
-
-    y_true = np.nan_to_num(y_true, nan = 0.0)
-    y_pred = np.nan_to_num(y_pred, nan = 0.0)
+    y_true = np.nan_to_num(y_true, nan=0.0)
+    y_pred = np.nan_to_num(y_pred, nan=0.0)
     
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     mae = mean_absolute_error(y_true, y_pred)
     mape = np.mean(np.abs((y_true - y_pred) / (y_true + 1e-8))) * 100
     
     if np.var(y_true) < 1e-8:
-        r2 = 1.0 if np.allclose(y_true, y_pred, atol = 1e-4) else 0.0
+        r2 = 1.0 if np.allclose(y_true, y_pred, atol=1e-4) else 0.0
     else:
         r2 = r2_score(y_true, y_pred)
         
     return {"rmse": rmse, "mae": mae, "mape": mape, "r2": r2}
 
 # =============================================================================
-# 2. FUNÇÕES DE PREPARAÇÃO DE DADOS (Extraídas de run_experiments)
+# 2. FUNÇÕES DE PREPARAÇÃO DE DADOS
 # =============================================================================
 
 def fetch_and_clean_data(state: str):
     """
     Busca os dados do banco de dados e aplica a limpeza inicial.
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     print(f"Conectando ao banco de dados para buscar dados de {state}...")
     with sync_engine.connect() as conn:
         query = select(CasoCovid.datetime, CasoCovid.new_confirmed).where(CasoCovid.state == state)
         result = conn.execute(query)
-        df = pd.DataFrame(result.fetchall(), columns = result.keys())
+        df = pd.DataFrame(result.fetchall(), columns=result.keys())
     
     if df.empty:
         print(f"Nenhum dado encontrado para o estado {state}. Pulando.")
         return None
     
-    df = df.sort_values('datetime').rename(columns = {'datetime': 'date'})
+    df = df.sort_values('datetime').rename(columns={'datetime': 'date'})
     
     print(f"Dados antes da limpeza: {len(df)} registros")
     df = df[df['new_confirmed'] >= 0]
@@ -124,10 +121,9 @@ def fetch_and_clean_data(state: str):
 def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
     """
     Aplica scaling, cria sequências e executa a lógica de split (temporal/estratificado).
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     time_series_raw = df['new_confirmed'].values.astype(float)
-    scaler = MinMaxScaler(feature_range = (0, 1))
+    scaler = MinMaxScaler(feature_range=(0, 1))
     time_series_scaled = scaler.fit_transform(time_series_raw.reshape(-1, 1))
     
     X, y = create_sequences(time_series_scaled, seq_length)
@@ -152,7 +148,7 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
         y_bins = np.digitize(y.flatten(), bins=np.percentile(y.flatten(), [0, 25, 50, 75, 100]))
         
         X_train, X_val, y_train, y_val, idx_train, idx_val = train_test_split(
-            X, y, np.arange(len(X)), test_size = 0.2, stratify = y_bins, random_state = 42
+            X, y, np.arange(len(X)), test_size=0.2, stratify=y_bins, random_state=42
         )
         
         original_train_y = original_y_full[idx_train]
@@ -191,30 +187,29 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
     return data_dict, scaler
 
 # =============================================================================
-# 3. FUNÇÕES DE TREINAMENTO (Extraídas de train_model)
+# 3. FUNÇÕES DE TREINAMENTO
 # =============================================================================
 
 def instantiate_model(params: dict, device):
     """
     Cria a instância do modelo (LSTM ou PLE) com base nos parâmetros.
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     model_type = params['model_type']
     
     if model_type == 'LSTM':
         model = CovidPredictorLSTM(
-            n_features = 1,
-            hidden_size = params['hidden_size'],
-            n_layers = params["n_layers"],
-            dropout = params.get('dropout', 0.0)
+            n_features=1,
+            hidden_size=params['hidden_size'],
+            n_layers=params["n_layers"],
+            dropout=params.get('dropout', 0.0)
         ).to(device)
     elif model_type == 'PLE':
         model = CovidPredictorPLE(
-            n_features = 1,
-            hidden_size = params['hidden_size'],
-            num_experts = params['num_experts'],
-            num_layers = params['num_ple_layers'],
-            dropout = params.get('dropout', 0.0)
+            n_features=1,
+            hidden_size=params['hidden_size'],
+            num_experts=params['num_experts'],
+            num_layers=params['num_ple_layers'],
+            dropout=params.get('dropout', 0.0)
         ).to(device)
     else:
         raise ValueError(f"Tipo de modelo desconhecido: {model_type}")
@@ -223,7 +218,6 @@ def instantiate_model(params: dict, device):
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     """
     Executa o loop de treinamento para uma época.
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     model.train()
     epoch_train_loss = 0.0
@@ -235,7 +229,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
         outputs = model(seqs)
         loss = criterion(outputs, labels)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = 1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         epoch_train_loss += loss.item()
         num_batches += 1
@@ -245,7 +239,6 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 def perform_validation(model, criterion, device, scaler, data_dict):
     """
     Executa a etapa de validação, incluindo cálculo de métricas (RMSE, R2, etc.).
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     model.eval()
     with torch.no_grad():
@@ -278,7 +271,6 @@ def perform_validation(model, criterion, device, scaler, data_dict):
 def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
     """
     Gera plots e salva todos os artefatos (modelo, scaler, plots) no MLflow.
-    --- FUNÇÃO NOVA (Refatorada) ---
     """
     print("\nGerando plots e salvando artefatos finais...")
     
@@ -305,55 +297,63 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
         
         fig_ts, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
         sample_size = min(500, len(y_train_true_final))
-        sample_indices = np.linspace(0, len(y_train_true_final) - 1, sample_size, dtype = int)
+        sample_indices = np.linspace(0, len(y_train_true_final) - 1, sample_size, dtype=int)
         
-        ax1.plot(sample_indices, y_train_true_final[sample_indices], label = 'Real', alpha = 0.7, lw = 1.5)
-        ax1.plot(sample_indices, y_train_pred_final[sample_indices], label = 'Predição', linestyle = '--', alpha = 0.7, lw = 1.5)
+        ax1.plot(sample_indices, y_train_true_final[sample_indices], label='Real', alpha=0.7, lw=1.5)
+        ax1.plot(sample_indices, y_train_pred_final[sample_indices], label='Predição', linestyle='--', alpha=0.7, lw=1.5)
         ax1.set_title(f'Training Set: Previsões vs. Reais - {run_name}')
+        ax1.set_xlabel('Índice da Amostra')
+        ax1.set_ylabel('Casos Confirmados')
         ax1.legend()
-        ax1.grid(True, alpha = 0.3)
+        ax1.grid(True, alpha=0.3)
         
         sample_size_val = min(200, len(y_val_true_final))
-        sample_indices_val = np.linspace(0, len(y_val_true_final) - 1, sample_size_val, dtype = int)
+        sample_indices_val = np.linspace(0, len(y_val_true_final) - 1, sample_size_val, dtype=int)
         
-        ax2.plot(sample_indices_val, y_val_true_final[sample_indices_val], label = 'Real', alpha = 0.7, lw = 1.5)
-        ax2.plot(sample_indices_val, y_val_pred_final[sample_indices_val], label = 'Predição', linestyle = '--', alpha = 0.7, lw = 1.5)
+        ax2.plot(sample_indices_val, y_val_true_final[sample_indices_val], label='Real', alpha=0.7, lw=1.5)
+        ax2.plot(sample_indices_val, y_val_pred_final[sample_indices_val], label='Predição', linestyle='--', alpha=0.7, lw=1.5)
         ax2.set_title(f'Validation Set: Previsões vs. Reais - {run_name}')
+        ax2.set_xlabel('Índice da Amostra')
+        ax2.set_ylabel('Casos Confirmados')
         ax2.legend()
-        ax2.grid(True, alpha = 0.3)
+        ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
         plot_path_ts = os.path.join(tmp_dir, "predictions_vs_reals.png")
         fig_ts.savefig(plot_path_ts, dpi=100)
         plt.close(fig_ts)
         
-        fig_sc, (ax1, ax2) = plt.subplots(1, 2, figsize = (16, 6))
+        fig_sc, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
         
-        ax1.scatter(y_train_true_final[sample_indices], y_train_pred_final[sample_indices], alpha = 0.5, s = 20)
+        ax1.scatter(y_train_true_final[sample_indices], y_train_pred_final[sample_indices], alpha=0.5, s=20)
         max_val = max(y_train_true_final.max(), y_train_pred_final.max())
         min_val = min(y_train_true_final.min(), y_train_pred_final.min())
-        ax1.plot([min_val, max_val], [min_val, max_val], 'r--', lw = 2, label='Predição Perfeita')
+        ax1.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Predição Perfeita')
+        ax1.set_xlabel('Valores Reais')
+        ax1.set_ylabel('Valores Preditos')
         ax1.set_title(f'Training Set - Scatter Plot')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        ax2.scatter(y_val_true_final[sample_indices_val], y_val_pred_final[sample_indices_val], alpha = 0.5, s = 20, color = 'orange')
+        ax2.scatter(y_val_true_final[sample_indices_val], y_val_pred_final[sample_indices_val], alpha=0.5, s=20, color='orange')
         max_val_v = max(y_val_true_final.max(), y_val_pred_final.max())
         min_val_v = min(y_val_true_final.min(), y_val_pred_final.min())
-        ax2.plot([min_val_v, max_val_v], [min_val_v, max_val_v], 'r--', lw = 2, label = 'Predição Perfeita')
+        ax2.plot([min_val_v, max_val_v], [min_val_v, max_val_v], 'r--', lw=2, label='Predição Perfeita')
+        ax2.set_xlabel('Valores Reais')
+        ax2.set_ylabel('Valores Preditos')
         ax2.set_title(f'Validation Set - Scatter Plot')
         ax2.legend()
-        ax2.grid(True, alpha = 0.3)
+        ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
         plot_path_sc = os.path.join(tmp_dir, "scatter_plot.png")
-        fig_sc.savefig(plot_path_sc, dpi = 100)
+        fig_sc.savefig(plot_path_sc, dpi=100)
         plt.close(fig_sc)
    
-        mlflow.pytorch.log_model(model, artifact_path = "model")
-        mlflow.log_artifact(scaler_path, artifact_path = "preprocessor")
-        mlflow.log_artifact(plot_path_ts, artifact_path = "plots")
-        mlflow.log_artifact(plot_path_sc, artifact_path = "plots")
+        mlflow.pytorch.log_model(model, artifact_path="model")
+        mlflow.log_artifact(scaler_path, artifact_path="preprocessor")
+        mlflow.log_artifact(plot_path_ts, artifact_path="plots")
+        mlflow.log_artifact(plot_path_sc, artifact_path="plots")
 
 # =============================================================================
 # 4. FUNÇÃO PRINCIPAL DE TREINAMENTO (Orquestradora)
@@ -362,7 +362,6 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
 def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
     """
     Orquestra o treinamento de um único modelo (run do MLflow).
-    --- FUNÇÃO ATUALIZADA (Refatorada) ---
     """
     
     model_type = params['model_type']
@@ -377,12 +376,16 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
         run_id = run.info.run_id
         print(f"\n--- Iniciando nova Run ({model_type}): {run_name} ---")
 
-        mlflow.log_input(dataset = dataset, context = "training")
+        mlflow.log_input(dataset=dataset, context="training")
         mlflow.set_tags({
-            "model_type": model_type, "Optimizer": "Adam",
-            "run_purpose": "Grid Search Comparison", "target_variable": "new_confirmed",
-            "feature_set": "v_univariate", "developer": "leggen-assis",
-            "data_source_table": "casos_covid", "data_source_filter": f"state='{state}'"
+            "model_type": model_type, 
+            "Optimizer": "Adam",
+            "run_purpose": "Grid Search Comparison", 
+            "target_variable": "new_confirmed",
+            "feature_set": "v_univariate", 
+            "developer": "leggen-assis",
+            "data_source_table": "casos_covid", 
+            "data_source_filter": f"state='{state}'"
         })
         mlflow.log_params(params)
 
@@ -401,9 +404,9 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
         model = instantiate_model(params, device)
 
         criterion = torch.nn.MSELoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr = params['learning_rate'])
-        scheduler = torch.optim.lr_scheduler.LRScheduler(
-            optimizer, mode = 'min', factor = 0.5, patience = 10, verbose = False
+        optimizer = torch.optim.Adam(model.parameters(), lr=params['learning_rate'])
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode='min', factor=0.5, patience=10, verbose=False
         )
 
         print("Iniciando o treinamento do modelo...")
@@ -420,15 +423,15 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
                 model, criterion, device, scaler, data_dict
             )
             
-            mlflow.log_metric("train_loss_batch_avg", avg_train_loss, step = epoch)
-            mlflow.log_metric("train_loss_full", train_loss, step = epoch)
-            mlflow.log_metric("val_loss_scaled", val_loss, step = epoch)
-            mlflow.log_metric("learning_rate", optimizer.param_groups[0]['lr'], step = epoch)
+            mlflow.log_metric("train_loss_batch_avg", avg_train_loss, step=epoch)
+            mlflow.log_metric("train_loss_full", train_loss, step=epoch)
+            mlflow.log_metric("val_loss_scaled", val_loss, step=epoch)
+            mlflow.log_metric("learning_rate", optimizer.param_groups[0]['lr'], step=epoch)
             
             for key, val in train_metrics.items():
-                mlflow.log_metric(f"train_{key}", val, step = epoch) 
+                mlflow.log_metric(f"train_{key}", val, step=epoch) 
             for key, val in val_metrics.items():
-                mlflow.log_metric(f"val_{key}", val, step = epoch) 
+                mlflow.log_metric(f"val_{key}", val, step=epoch) 
             
             scheduler.step(val_loss)
             
@@ -465,7 +468,6 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
 def run_experiments(state: str):
     """
     Orquestra todo o processo de experimentação para um único estado.
-    --- FUNÇÃO ATUALIZADA (Refatorada) ---
     """
     print(f"\n{'='*60}\nIniciando script de experimentação para o estado: {state}\n{'='*60}")
     
@@ -487,7 +489,6 @@ def run_experiments(state: str):
         print(f"[{idx}/{len(settings['param_grid'])}] Testando combinação: {params}")
         print(f"{'='*60}")
         
-       
         data_dict, scaler = prepare_data_for_run(df, params['sequence_length'])
         
         if data_dict is None:
@@ -501,10 +502,6 @@ def run_experiments(state: str):
     print(f"Todos os experimentos para o estado {state} foram concluídos!")
     print(f"{'='*60}\n")
 
-# =============================================================================
-# 6. PONTO DE ENTRADA (ENTRYPOINT)
-# =============================================================================
-
 if __name__ == "__main__":
     mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5001"))
     print(f"MLflow Tracking URI: {mlflow.get_tracking_uri()}")
@@ -512,6 +509,6 @@ if __name__ == "__main__":
     states_to_train = ["CE"] 
     
     for state_code in states_to_train:
-        run_experiments(state = state_code)
+        run_experiments(state=state_code)
     
     print(f"\n{'='*60}\n Processo finalizado com sucesso!\n{'='*60}")
