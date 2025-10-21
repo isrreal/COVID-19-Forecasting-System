@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+# stats.py
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_async_session
+# CORREÇÃO: Removida a importação 'forecast_service'
 from src.api.v1.services import stats_service
 import logging
 
@@ -12,6 +15,7 @@ router: APIRouter = APIRouter()
 @router.get("/summary")
 async def get_summary(db: AsyncSession = Depends(get_async_session)):
     """Retorna estatísticas gerais resumidas."""
+    # O try/except foi movido para dentro do serviço
     return await stats_service.get_summary_stats(db)
 
 
@@ -27,6 +31,7 @@ async def get_city(city_name: str, state: str, db: AsyncSession = Depends(get_as
     Returns:
         dict: Estatísticas da cidade (casos confirmados, mortes, médias)
     """
+    # O try/except foi movido para dentro do serviço
     return await stats_service.get_city_stats(city_name, state, db)
 
 
@@ -39,6 +44,7 @@ async def top_cities(limit: int = 10, db: AsyncSession = Depends(get_async_sessi
         result = await stats_service.get_top_cities(limit, db)
 
         if isinstance(result, dict) and "error" in result:
+            # Erro vindo da camada de serviço
             raise HTTPException(status_code = 500, detail = result["error"])
 
         return {"data": result}
@@ -60,6 +66,7 @@ async def chi_square_test(db: AsyncSession = Depends(get_async_session)):
     Returns:
         dict: Estatísticas do teste (chi2, p-value, graus de liberdade, interpretação)
     """
+    # O try/except foi movido para dentro do serviço
     return await stats_service.chi_square_state_deaths(db)
 
 
@@ -104,3 +111,42 @@ async def get_least_affected_cities(limit: int = 10, db: AsyncSession = Depends(
     except Exception as e:
         logger.exception(f"Erro inesperado ao buscar cidades menos afetadas: {e}")
         raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")
+
+# -----------------------------------------------------------
+# Intervalos de confiança
+# -----------------------------------------------------------
+@router.get("/confidence/cases")
+async def confidence_interval_cases(
+    confidence: float = Query(0.95, ge=0.8, le=0.99),
+    # CORREÇÃO: Padronizado nome da variável de 'session' para 'db'
+    db: AsyncSession = Depends(get_async_session)
+):
+    """
+    Retorna o intervalo de confiança da média de novos casos diários.
+    """
+    try:
+        # CORREÇÃO: Chamando stats_service e usando await
+        return await stats_service.get_confidence_interval_cases(db, confidence)
+    except Exception as e:
+        # CORREÇÃO: Usando HTTPException para retornar um erro 500
+        logger.exception(f"Erro ao calcular IC de casos: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular intervalo de confiança: {str(e)}")
+
+
+@router.get("/confidence/deaths")
+# CORREÇÃO: Endpoint deve ser 'async def' para usar 'await' e 'Depends' assíncrono
+async def confidence_interval_deaths(
+    confidence: float = Query(0.95, ge=0.8, le=0.99),
+    # CORREÇÃO: Padronizado nome da variável de 'session' para 'db'
+    db: AsyncSession = Depends(get_async_session)
+):
+    """
+    Retorna o intervalo de confiança da média de novas mortes diárias.
+    """
+    try:
+        # CORREÇÃO: Usando 'await' e chamando 'stats_service'
+        return await stats_service.get_confidence_interval_deaths(db, confidence)
+    except Exception as e:
+        # CORREÇÃO: Usando HTTPException para retornar um erro 500
+        logger.exception(f"Erro ao calcular IC de mortes: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao calcular intervalo de confiança: {str(e)}")
