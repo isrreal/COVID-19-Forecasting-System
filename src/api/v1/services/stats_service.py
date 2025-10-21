@@ -126,19 +126,24 @@ async def get_top_cities(limit: int, session: AsyncSession) -> Union[List[Dict[s
 # ==========================================================
 # Cidades mais letais
 # ==========================================================
-async def get_most_deadly_cities(limit: int, session: AsyncSession) -> Union[List[Dict[str, float]], Dict[str, str]]:
+async def get_most_deadly_cities(limit: int, session: AsyncSession):
     """
-    Retorna as cidades com o maior número acumulado de mortes.
+    Retorna as cidades com o maior número acumulado de mortes,
+    incluindo o estado correspondente.
     """
     try:
         result = await session.execute(
             select(
                 CasoCovid.city,
+                CasoCovid.state,
                 func.sum(CasoCovid.last_available_deaths).label("total_deaths")
             )
-            .where(CasoCovid.city.isnot(None), CasoCovid.city != "N/A")
-            .group_by(CasoCovid.city)
-            .order_by(func.sum(CasoCovid.last_available_deaths).desc())
+            .where(
+                CasoCovid.city.isnot(None),
+                CasoCovid.city != "N/A"
+            )
+            .group_by(CasoCovid.city, CasoCovid.state)  
+            .order_by(func.sum(CasoCovid.last_available_deaths).desc())  
             .limit(limit)
         )
 
@@ -147,7 +152,8 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession) -> Union[Lis
         return [
             {
                 "city": row["city"],
-                "total_deaths": float(row["total_deaths"] or 0),
+                "state": row["state"],
+                "total_deaths": float(row["total_deaths"] or 0)
             }
             for row in rows
         ]
@@ -156,22 +162,28 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession) -> Union[Lis
         logger.exception("Erro ao buscar cidades mais letais.")
         return {"error": "Não foi possível obter as cidades mais letais."}
 
+
 # ==========================================================
-# Cidades menos letais
+# Cidades menos afetadas
 # ==========================================================
 async def get_least_affected_cities(limit: int, session: AsyncSession):
     """
     Retorna as cidades com menor número de casos confirmados acumulados.
+    Inclui também o estado correspondente.
     """
     try:
         result = await session.execute(
             select(
                 CasoCovid.city,
+                CasoCovid.state,
                 func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
             )
-            .where(CasoCovid.city.isnot(None))
-            .group_by(CasoCovid.city)
-            .order_by(func.sum(CasoCovid.last_available_confirmed).asc())  
+            .where(
+                CasoCovid.city.isnot(None),
+                CasoCovid.city != "N/A"
+            )
+            .group_by(CasoCovid.city, CasoCovid.state)  
+            .order_by(func.sum(CasoCovid.last_available_confirmed).asc())
             .limit(limit)
         )
 
@@ -180,13 +192,14 @@ async def get_least_affected_cities(limit: int, session: AsyncSession):
         return [
             {
                 "city": row["city"],
-                "total_confirmed": float(row["total_confirmed"]) if row["total_confirmed"] else 0
+                "state": row["state"],
+                "total_confirmed": row["total_confirmed"] or 0
             }
             for row in rows
         ]
 
-    except SQLAlchemyError as e:
-        logger.error(f"Erro ao buscar cidades menos afetadas: {e}")
+    except SQLAlchemyError:
+        logger.exception("Erro ao buscar cidades menos afetadas.")
         return {"error": "Não foi possível obter as cidades com menos casos confirmados."}
 
 # ==========================================================
