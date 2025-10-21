@@ -10,7 +10,7 @@ from sklearn.preprocessing import MinMaxScaler
 from unidecode import unidecode
 from sqlalchemy import text, inspect
 
-from database import sync_engine, create_tables_sync
+from database import sync_engine, create_tables 
 from src.models.casos_covid import CasoCovid
 
 DATA_PATH = "data/caso_full.csv"
@@ -211,7 +211,7 @@ def main_etl_pipeline():
                 logging.info(f"Tabela '{TABLE_NAME}' já contém {count} registros. Pulando ETL.")
                 return
 
-    create_tables_sync()
+    create_tables()
 
     logging.info("Estrutura da tabela garantida.")
 
