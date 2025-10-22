@@ -1,59 +1,73 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 
 from src.api.v1.schemas.forecast import (
-    PredictionRequest, 
     ForecastResponse, 
-    PredictionResponse
+    ForecastResponseByCity
 )
-from src.api.v1.services.forecast_service import get_prediction_for_state, get_forecast_for_state
+from src.api.v1.services.forecast_service import (
+    get_forecast_for_state, 
+    get_forecast_for_entire_state, 
+    get_forecast_with_confidence, 
+    get_forecast_for_city
+)
 
 router: APIRouter = APIRouter()
 
-@router.post("/predict/{state_code}", response_model = PredictionResponse, summary = "Obtém uma previsão para o próximo dia")
-def predict_next_day(
-    payload: PredictionRequest,
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE")
-):
-    try:
-        prediction = get_prediction_for_state(state_code.upper(), payload.sequence)
-        if not prediction:
-            raise HTTPException(status_code = 404, detail = f"Modelo para o estado {state_code} não encontrado.")
-        return prediction
-
-    except ValueError as e:
-        raise HTTPException(status_code = 400, detail = str(e))
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        print(f"Erro inesperado em predict_next_day: {e}")
-        raise HTTPException(status_code = 500, detail = "Ocorreu um erro interno ao processar a previsão.")
-
-
-
 @router.get(
-    "/{state_code}", 
+    "/forecast/state/{state_code}", 
     response_model = ForecastResponse,
-    summary = "Gera uma previsão para os próximos N dias"
+    summary = "Previsão multi-step para o estado inteiro (agregado)"
 )
-def get_forecast(
+def forecast_entire_state(
     state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
     days: int = Query(default = 7, ge = 1, le = 30)
 ):
-    try:
-        forecast_data = get_forecast_for_state(state_code.upper(), days)
-        if not forecast_data:
-            raise HTTPException(status_code = 404, detail = f"Modelo para o estado {state_code} não encontrado.")
-        return forecast_data
+    forecast = get_forecast_for_entire_state(state_code.upper(), days)
+    if not forecast or "forecast" not in forecast:
+        raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
+    return forecast
 
-    except ValueError as e:
-        raise HTTPException(status_code = 400, detail = str(e))
 
-    except HTTPException:
-        raise
+@router.get(
+    "/forecast/state/{state_code}/confidence", 
+    summary="Previsão multi-step com intervalo de confiança para o estado agregado"
+)
+def forecast_state_with_confidence(
+    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    days: int = Query(default = 7, ge = 1, le = 30),
+    confidence: float = Query(default = 0.95, ge = 0.5, le = 0.99)
+):
+    forecast_ci = get_forecast_with_confidence(state_code.upper(), days, confidence)
+    if not forecast_ci or "forecast_with_confidence" not in forecast_ci:
+        raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
+    return forecast_ci
 
-    except Exception as e:
-        print(f"Erro inesperado em get_forecast: {e}")
-        raise HTTPException(status_code = 500, detail = "Ocorreu um erro interno ao gerar a previsão.")
 
+@router.get(
+    "/forecast/cities/{state_code}", 
+    response_model=ForecastResponseByCity,
+    summary="Previsão multi-step para todas as cidades de um estado"
+)
+def forecast_all_cities(
+    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    days: int = Query(default = 7, ge = 1, le = 30)
+):
+    forecast = get_forecast_for_state(state_code.upper(), days)
+    if not forecast or not forecast.get("forecasts"):
+        raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {state_code}")
+    return forecast
+
+
+@router.get(
+    "/forecast/city/{state_code}/{city_name}", 
+    summary="Previsão multi-step para uma cidade específica de um estado"
+)
+def forecast_specific_city(
+    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    city_name: str = Path(min_length = 1, example = "Fortaleza"),
+    days: int = Query(default = 7, ge = 1, le = 30)
+):
+    forecast = get_forecast_for_city(state_code.upper(), city_name, days)
+    if not forecast or "forecast" not in forecast:
+        raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {city_name} ({state_code})")
+    return forecast
