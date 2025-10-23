@@ -363,23 +363,73 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
 
 
 # ==========================================================
-# Previsão para uma cidade específica
+# Previsão multi-step para uma cidade
 # ==========================================================
-def get_forecast_for_city(state_code: str, city_name: str, days: int) -> dict:
+def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
     """
-    Retorna previsão multi-step para uma cidade específica de um estado.
+    Gera previsões multi-step para uma cidade específica de um estado.
     """
+    artifacts = _load_model_from_mlflow(state_code)
+    if not artifacts:
+        return {"error": f"Modelo não encontrado para {state_code}"}
 
-    all_forecasts = get_forecast_for_state(state_code, days)
+    model = artifacts["model"]
+    scaler = artifacts["scaler"]
+    seq_length = artifacts["seq_length"]
+    run_id = artifacts["run_id"]
 
-    if "forecasts" not in all_forecasts or city_name not in all_forecasts["forecasts"]:
-        return {"error": f"Previsão não disponível para {city_name} ({state_code})"}
+    with sync_engine.connect() as session:
+        query = (
+            select(
+                CasoCovid.datetime,
+                func.sum(CasoCovid.new_confirmed).label("total_casos")
+            )
+            .where(CasoCovid.state == state_code)
+            .where(CasoCovid.city == city)
+            .where(CasoCovid.new_confirmed >= 0)
+            .group_by(CasoCovid.datetime)
+            .limit(seq_length)
+        )
+
+        result = session.execute(query).all()
+        if not result or len(result) < seq_length:
+            return {"error": f"Dados insuficientes para {city}, {state_code}."}
+
+        result.reverse()
+        last_date = result[-1].datetime
+        initial_sequence_values = [r.total_casos for r in result]
+
+        # Escala a sequência
+        current_sequence_scaled = scaler.transform(
+            np.array(initial_sequence_values, dtype=np.float32).reshape(-1, 1)
+        )
+
+        forecast = []
+        for i in range(days):
+            with torch.no_grad():
+                input_tensor = torch.from_numpy(current_sequence_scaled).float().view(1, seq_length, 1)
+                pred_scaled = model(input_tensor).cpu().numpy()
+
+            pred_real = scaler.inverse_transform(pred_scaled)[0][0]
+            pred_real = max(0, pred_real)
+
+            forecast.append({
+                "date": (last_date + timedelta(days=i+1)).strftime("%Y-%m-%d"),
+                "predicted_value": round(float(pred_real), 2)
+            })
+
+            current_sequence_scaled = np.vstack((
+                current_sequence_scaled[1:],
+                pred_scaled.reshape(1, 1)
+            ))
+
     return {
         "state": state_code,
-        "city": city_name,
-        "model_run_id": all_forecasts["model_run_id"],
-        "forecast": all_forecasts["forecasts"][city_name]
+        "city": city,
+        "model_run_id": run_id,
+        "forecast": forecast
     }
+
 
 
 # ==========================================================
