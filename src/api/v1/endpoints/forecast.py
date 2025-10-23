@@ -14,7 +14,7 @@ from src.api.v1.services.forecast_service import (
 router: APIRouter = APIRouter()
 
 @router.get(
-    "/forecast/state/{state_code}", 
+    "/state/{state_code}", 
     response_model = ForecastResponse,
     summary = "Previsão multi-step para o estado inteiro (agregado)"
 )
@@ -29,8 +29,8 @@ def forecast_entire_state(
 
 
 @router.get(
-    "/forecast/state/{state_code}/confidence", 
-    summary="Previsão multi-step com intervalo de confiança para o estado agregado"
+    "/state/{state_code}/confidence", 
+    summary = "Previsão multi-step com intervalo de confiança para o estado agregado"
 )
 def forecast_state_with_confidence(
     state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
@@ -44,9 +44,9 @@ def forecast_state_with_confidence(
 
 
 @router.get(
-    "/forecast/cities/{state_code}", 
-    response_model=ForecastResponseByCity,
-    summary="Previsão multi-step para todas as cidades de um estado"
+    "/cities/{state_code}", 
+    response_model = ForecastResponseByCity,
+    summary = "Previsão multi-step para todas as cidades de um estado"
 )
 def forecast_all_cities(
     state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
