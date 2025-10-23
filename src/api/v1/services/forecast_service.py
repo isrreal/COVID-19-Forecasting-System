@@ -348,7 +348,7 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
                 pred_real = max(0, pred_real)
 
                 city_forecast.append({
-                    "date": (last_date + timedelta(days=i+1)).strftime("%Y-%m-%d"),
+                    "date": (last_date + timedelta(days = i + 1)).strftime("%Y-%m-%d"),
                     "predicted_value": round(float(pred_real), 2)
                 })
                 current_sequence_scaled = np.vstack((current_sequence_scaled[1:], pred_scaled.reshape(1, 1)))
@@ -369,7 +369,9 @@ def get_forecast_for_city(state_code: str, city_name: str, days: int) -> dict:
     """
     Retorna previsão multi-step para uma cidade específica de um estado.
     """
+
     all_forecasts = get_forecast_for_state(state_code, days)
+
     if "forecasts" not in all_forecasts or city_name not in all_forecasts["forecasts"]:
         return {"error": f"Previsão não disponível para {city_name} ({state_code})"}
     return {
@@ -398,7 +400,7 @@ def get_forecast_with_confidence(state_code: str, days: int, confidence: float =
             "date": item["date"],
             "predicted_mean": round(float(predictions[i]), 2),
             "lower_bound": round(max(0, predictions[i] - z_score * std_dev[i]), 2),
-            "upper_bound": round(predictions[i] + z_score*std_dev[i], 2)
+            "upper_bound": round(predictions[i] + z_score * std_dev[i], 2)
         })
 
     return {
