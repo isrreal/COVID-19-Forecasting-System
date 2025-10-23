@@ -252,11 +252,11 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
             .where(CasoCovid.state == state_code)
             .where(CasoCovid.new_confirmed >= 0)
             .group_by(CasoCovid.datetime)
-            .order_by(CasoCovid.datetime.desc())
             .limit(seq_length)
         )
 
         result = session.execute(query).all()
+
         if not result or len(result) < seq_length:
             return {"error": f"Dados insuficientes para {state_code}."}
 
@@ -265,7 +265,7 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
         initial_sequence_values = [r.total_casos for r in result]
 
         current_sequence_scaled = scaler.transform(
-            np.array(initial_sequence_values, dtype=np.float32).reshape(-1, 1)
+            np.array(initial_sequence_values, dtype = np.float32).reshape(-1, 1)
         )
 
         forecast = []
@@ -278,7 +278,7 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
             pred_real = max(0, pred_real)
 
             forecast.append({
-                "date": (last_date + timedelta(days=i+1)).strftime("%Y-%m-%d"),
+                "date": (last_date + timedelta(days = i + 1)).strftime("%Y-%m-%d"),
                 "predicted_value": round(float(pred_real), 2)
             })
 
