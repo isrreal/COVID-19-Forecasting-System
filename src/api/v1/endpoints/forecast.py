@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Path
+from unidecode import unidecode
 
 from src.api.v1.schemas.forecast import (
     ForecastResponse, 
@@ -59,15 +60,16 @@ def forecast_all_cities(
 
 
 @router.get(
-    "/forecast/city/{state_code}/{city_name}", 
-    summary="Previsão multi-step para uma cidade específica de um estado"
+    "/city/{state_code}/{city_name}", 
+    summary = "Previsão multi-step para uma cidade específica de um estado"
 )
 def forecast_specific_city(
     state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
     city_name: str = Path(min_length = 1, example = "Fortaleza"),
     days: int = Query(default = 7, ge = 1, le = 30)
 ):
-    forecast = get_forecast_for_city(state_code.upper(), city_name, days)
+    normalized_city_name = unidecode(city_name)
+    forecast = get_forecast_for_city(state_code.upper(), normalized_city_name.lower(), days)
     if not forecast or "forecast" not in forecast:
         raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {city_name} ({state_code})")
     return forecast
