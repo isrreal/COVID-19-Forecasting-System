@@ -134,3 +134,15 @@ async def confidence_interval_deaths(
     except Exception as e:
         logger.exception(f"Erro ao calcular IC de mortes: {e}")
         raise HTTPException(status_code = 500, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
+
+@router.get("/plot/histogram")
+async def histogram_plot(
+    metric: str = Query("new_confirmed", description = "Métrica para o histograma"),
+    bin_width: int = Query(100, description = "Largura dos intervalos (bins)"),
+    max_value: int = Query(10000, description = "Valor máximo exibido no eixo X"),
+    db: AsyncSession = Depends(get_async_session)
+):
+    """
+    Endpoint que delega a geração do histograma para o serviço.
+    """
+    return await stats_service.generate_histogram(metric, bin_width, max_value, db)
