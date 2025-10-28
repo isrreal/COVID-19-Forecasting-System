@@ -1,5 +1,5 @@
 import logging
-from typing import List, Dict, Union, Any
+from typing import Dict, Union
 import io
 
 import pandas as pd
@@ -9,10 +9,10 @@ from scipy.stats import chi2_contingency
 import matplotlib.pyplot as plt
 from unidecode import unidecode
 
-from sqlalchemy import func, select, case, Column
+from sqlalchemy import func, select, Column
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 
 from src.models.casos_covid import CasoCovid
 
@@ -265,96 +265,55 @@ async def get_confidence_interval_cases(session, confidence = 0.95):
 async def get_confidence_interval_deaths(session, confidence = 0.95):
     return await _get_confidence_interval(session, CasoCovid.new_deaths, "new_deaths", confidence)
 
+async def generate_histogram(
+    metric: str,
+    bin_width: int,
+    max_value: int,
+    session: AsyncSession
+):
+    """
+    Gera um histograma da métrica selecionada e retorna uma imagem PNG.
+    """
 
-# ==========================================================
-# Helper
-# ==========================================================
-def _get_metric_column(metric: str):
     metric_map = {
         "new_confirmed": CasoCovid.new_confirmed,
         "new_deaths": CasoCovid.new_deaths,
         "last_available_confirmed": CasoCovid.last_available_confirmed,
-        "last_available_deaths": CasoCovid.last_available_deaths,
+        "last_available_deaths": CasoCovid.last_available_deaths
     }
-    col = metric_map.get(metric)
-    if col is None:
-        raise ValueError("Métrica inválida.")
-    return col
 
+    if metric not in metric_map:
+        return {"error": f"Métrica inválida: {metric}"}
 
-# ==========================================================
-# Dados para gráficos + Imagens
-# ==========================================================
-async def get_histogram_data(session: AsyncSession, metric = "new_confirmed", bin_width = 100, max_value = 10000):
     try:
-        col = _get_metric_column(metric)
-        bin_start = (func.floor(col / bin_width) * bin_width).label("bin")
         result = await session.execute(
-            select(bin_start, func.count().label("count"))
-            .where(col.isnot(None), col < max_value)
-            .group_by(bin_start)
-            .order_by(bin_start)
+            select(metric_map[metric]).where(metric_map[metric].isnot(None))
         )
-        rows = result.mappings().all()
-        return {"metric": metric, "bin_width": bin_width, "histogram_data": rows}
+        values = [row[0] for row in result.fetchall() if row[0] is not None]
+
+        if not values:
+            return {"error": "Nenhum dado disponível para gerar o histograma."}
+
+        df = pd.DataFrame(values, columns = [metric])
+        df = df[df[metric] <= max_value]
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(df[metric], bins = np.arange(0, max_value + bin_width, bin_width), edgecolor = "black")
+        plt.title(f"Histograma de {metric}")
+        plt.xlabel(metric)
+        plt.ylabel("Frequência")
+        plt.grid(True, linestyle = "--", alpha = 0.6)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format = "png", bbox_inches = "tight")
+        plt.close()
+        buf.seek(0)
+
+        return StreamingResponse(buf, media_type = "image/png")
+
+    except SQLAlchemyError:
+        logger.exception("Erro ao gerar histograma.")
+        return {"error": "Erro de banco de dados ao gerar o histograma."}
     except Exception:
-        return {"error": "Erro ao obter histograma."}
-
-
-def _plot_histogram(data):
-    df = pd.DataFrame(data["histogram_data"])
-    if df.empty:
-        return io.BytesIO()
-    fig, ax = plt.subplots()
-    ax.bar(df["bin"], df["count"], width=data["bin_width"])
-    ax.set_title("Histograma")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-async def get_histogram_image(session, metric="new_confirmed", bin_width = 100, max_value = 10000):
-    data = await get_histogram_data(session, metric, bin_width, max_value)
-    if "error" in data:
-        return data
-    return await run_in_threadpool(_plot_histogram, data)
-
-
-async def get_time_series_data(session, metric = "new_confirmed", state = None):
-    try:
-        col = _get_metric_column(metric)
-        query = (
-            select(CasoCovid.datetime, func.sum(col))
-            .where(col.isnot(None))
-            .group_by(CasoCovid.datetime)
-            .order_by(CasoCovid.datetime)
-        )
-        if state:
-            query = query.where(CasoCovid.state == state)
-        rows = (await session.execute(query)).mappings().all()
-        return {"time_series_data": rows, "metric": metric}
-    except Exception:
-        return {"error": "Erro ao obter série temporal."}
-
-
-def _plot_time_series(data):
-    df = pd.DataFrame(data["time_series_data"])
-    if df.empty:
-        return io.BytesIO()
-    fig, ax = plt.subplots()
-    ax.plot(df["datetime"], df["sum_1"])
-    ax.set_title("Série temporal")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-
-async def get_time_series_image(session, metric = "new_confirmed", state = None):
-    data = await get_time_series_data(session, metric, state)
-    if "error" in data:
-        return data
-    return await run_in_threadpool(_plot_time_series, data)
+        logger.exception("Erro inesperado ao gerar histograma.")
+        return {"error": "Erro inesperado ao gerar o histograma."}
