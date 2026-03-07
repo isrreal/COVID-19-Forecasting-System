@@ -1,2 +1,9 @@
 Dockerfile
 docker-compose.yml
+.pytest_cache
+.git
+__pycache__
+*.pyc
+*.ipynb_checkpoints
+notebooks/
+tests/
