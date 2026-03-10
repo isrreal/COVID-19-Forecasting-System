@@ -2,7 +2,6 @@ import logging
 from pathlib import Path
 import io
 import requests
-from typing import Optional
 
 import pandas
 from pandas import DataFrame
@@ -19,8 +18,8 @@ TABLE_NAME = CasoCovid.__tablename__
 DATASET_URL = "https://data.brasil.io/dataset/covid19/caso_full.csv.gz"
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level = logging.INFO,
+    format = "%(asctime)s - %(levelname)s - %(message)s"
 )
 
 # -----------------------------
@@ -53,7 +52,7 @@ def clean_and_convert(dataframe: DataFrame) -> DataFrame:
 
     # Normalize city names
     if "city" in dataframe.columns:
-        dataframe["city"] = dataframe["city"].astype(str).str.strip().str.lower().map(unidecode)
+        dataframe["city"] = dataframe["city"].astype("category")
 
     # Convert numeric columns
     for col in ["estimated_population", "estimated_population_2019", "city_ibge_code"]:
@@ -62,13 +61,18 @@ def clean_and_convert(dataframe: DataFrame) -> DataFrame:
 
     # Convert place_type
     if "place_type" in dataframe.columns:
-        dataframe["place_type"] = dataframe["place_type"].replace({"City": "C", "State": "S"}).astype("category")
+        city_normalized = unidecode("City")
+        state_normalized = unidecode("State")
+
+        dataframe["place_type"] = dataframe["place_type"].replace(
+            {city_normalized: "C", state_normalized: "S"}
+        ).astype("category")
 
     # Replace broken null values
     dataframe.replace(
         ["<NA>", "NA", "NaN", "nan", "null", "", "Importados/Indefinidos"],
         numpy.nan,
-        inplace=True
+        inplace = True
     )
 
     # Filter invalid cities
@@ -76,14 +80,36 @@ def clean_and_convert(dataframe: DataFrame) -> DataFrame:
         initial_count = len(dataframe)
         dataframe = dataframe[dataframe["city"].notna()].copy()
         removed = initial_count - len(dataframe)
-        logging.info(f"Removed {removed} rows with invalid city values. Remaining: {len(dataframe)}")
 
-    # Impute missing dates
+        logging.info(
+            f"Removed {removed} rows with invalid city values. Remaining: {len(dataframe)}"
+        )
+
+    # Convert dates
     if "date" in dataframe.columns and "last_available_date" in dataframe.columns:
         dataframe["date"] = pandas.to_datetime(dataframe["date"], errors = "coerce")
-        dataframe["last_available_date"] = pandas.to_datetime(dataframe["last_available_date"], errors = "coerce")
+        dataframe["last_available_date"] = pandas.to_datetime(
+            dataframe["last_available_date"], errors = "coerce"
+        )
 
         dataframe.sort_values(["state", "city", "date"], inplace = True)
+
+    # Recalculate cases per 100k
+    if (
+        "last_available_confirmed" in dataframe.columns
+        and "estimated_population" in dataframe.columns
+    ):
+        dataframe["confirmed_per_100k"] = (
+            dataframe["last_available_confirmed"]
+            / dataframe["estimated_population"]
+        ) * 100000
+
+    # Drop old column
+    if "last_available_confirmed_per_100k_inhabitants" in dataframe.columns:
+        dataframe.drop(
+            columns = ["last_available_confirmed_per_100k_inhabitants"],
+            inplace = True
+        )
 
     return dataframe
 
@@ -105,6 +131,7 @@ def analyze_missing_columns(dataframe: DataFrame, stage: str) -> None:
         "missing_count": missing_counts,
         "missing_rate": (missing_counts / total_rows) * 100
     }).sort_values("missing_rate", ascending = False)
+
     summary["missing_rate"] = summary["missing_rate"].map("{:.2f}%".format)
 
     logging.info(f"{len(summary)} columns with missing values:\n{summary}")
@@ -175,15 +202,18 @@ def main_etl_pipeline():
         logging.error("Data extraction failed. Aborting ETL.")
         return
     logging.info(f"Extracted dataset with {len(dataframe)} rows.")
+
     analyze_missing_columns(dataframe, stage = "Raw")
 
     # Cleaning / Transformation
     dataframe_transformed = clean_and_convert(dataframe)
+
     analyze_missing_columns(dataframe_transformed, stage = "Transformed")
+    
     logging.info(f"Transformed dataset with {len(dataframe_transformed)} rows.")
 
     # Load
-    load_data(dataframe_transformed)
+    # load_data(dataframe_transformed)
 
     logging.info("ETL pipeline completed successfully!")
 
