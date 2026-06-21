@@ -119,6 +119,18 @@ services:
       --ServerApp.token=''
 
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard/Dockerfile
+    container_name: covid_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
+
 volumes:
   postgres_data:
   mlflow_artifacts:
