@@ -225,16 +225,16 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
     """
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
 
     with sync_engine.connect() as session:
         sequence_data = _get_initial_sequence(session, state_code, seq_length, city = None)
-        
+
         if not sequence_data:
-            return {"error": f"Dados insuficientes para {state_code}."}
+            return {"error": f"Insufficient data for {state_code}."}
         
         initial_sequence, last_date = sequence_data
         
@@ -256,7 +256,7 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
     """
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
@@ -265,7 +265,7 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
         sequence_data = _get_initial_sequence(session, state_code, seq_length, city = city)
 
         if not sequence_data:
-            return {"error": f"Dados insuficientes para {city}, {state_code}."}
+            return {"error": f"Insufficient data for {city}, {state_code}."}
         
         initial_sequence, last_date = sequence_data
 
@@ -288,7 +288,7 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
     """
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
@@ -299,13 +299,13 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
         cities = [r.city for r in session.execute(cities_query).all()]
 
         if not cities:
-            return {"error": f"Nenhuma cidade encontrada para {state_code}"}
+            return {"error": f"No cities found for {state_code}"}
 
         for city in cities:
             sequence_data = _get_initial_sequence(session, state_code, seq_length, city = city)
-            
+
             if not sequence_data:
-                print(f"WARNING: Dados insuficientes para {city} (necessário: {seq_length})")
+                print(f"WARNING: Insufficient data for {city} (required: {seq_length})")
                 continue
             
             initial_sequence, last_date = sequence_data
@@ -329,7 +329,7 @@ def get_forecast_with_confidence(state_code: str, days: int, confidence: float =
     """
     base_forecast = get_forecast_for_entire_state(state_code, days)
     if "forecast" not in base_forecast:
-        return {"error": f"Falha ao gerar previsão para {state_code}"}
+        return {"error": f"Failed to generate forecast for {state_code}"}
 
     predictions = np.array([item["predicted_value"] for item in base_forecast["forecast"]])
     
