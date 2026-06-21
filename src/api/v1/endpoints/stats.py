@@ -24,7 +24,11 @@ logger = logging.getLogger(__name__)
 @router.get("/summary", response_model = SummaryStats)
 def get_summary(db: Session = Depends(get_sync_session)):
     """Returns aggregated summary statistics."""
-    return stats_service.get_summary_stats(db)
+    try:
+        return stats_service.get_summary_stats(db)
+    except Exception as e:
+        logger.exception(f"Error fetching summary statistics: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Could not retrieve summary statistics.")
 
 
 @router.get("/city/{city_name}/{state}", response_model = CityStats)
@@ -34,7 +38,16 @@ def get_city(
     db: Session = Depends(get_sync_session)
 ):
     """Returns aggregated statistics for a specific city."""
-    return stats_service.get_city_stats(city_name, state, db)
+    try:
+        result = stats_service.get_city_stats(city_name, state, db)
+        if result is None:
+            raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"No statistics found for {city_name} - {state}.")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error fetching city statistics for {city_name}: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Could not retrieve statistics for city {city_name}.")
 
 
 @router.get("/top-cities", response_model = CityConfirmedList)
@@ -60,7 +73,11 @@ def top_cities(limit: int = 10, db: Session = Depends(get_sync_session)):
 @router.get("/chi-square/state-deaths", response_model = ChiSquareResult)
 def chi_square_test(db: Session = Depends(get_sync_session)):
     """Performs a chi-square test between state and death occurrence."""
-    return stats_service.chi_square_state_deaths(db)
+    try:
+        return stats_service.chi_square_state_deaths(db)
+    except Exception as e:
+        logger.exception(f"Error performing chi-square test: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Could not perform the chi-square test.")
 
 
 @router.get("/most-deadly-cities", response_model = CityMortalityList)
@@ -114,6 +131,8 @@ def confidence_interval_cases(
     """Returns the confidence interval for the mean of daily new confirmed cases."""
     try:
         return stats_service.get_confidence_interval_cases(db, confidence)
+    except ValueError as e:
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = str(e))
     except Exception as e:
         logger.exception(f"Error calculating confidence interval for cases: {e}")
         raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Error calculating confidence interval: {str(e)}")
@@ -127,6 +146,8 @@ def confidence_interval_deaths(
     """Returns the confidence interval for the mean of daily new deaths."""
     try:
         return stats_service.get_confidence_interval_deaths(db, confidence)
+    except ValueError as e:
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = str(e))
     except Exception as e:
         logger.exception(f"Error calculating confidence interval for deaths: {e}")
         raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Error calculating confidence interval: {str(e)}")

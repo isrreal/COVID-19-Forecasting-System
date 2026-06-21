@@ -82,4 +82,7 @@ try:
     st.caption(f"Based on {ci['n']:,} observations at {int(confidence * 100)}% confidence.")
 
 except Exception as e:
-    st.error(f"Could not load confidence interval: {e}")
+    if "404" in str(e):
+        st.info("No data available yet. Run the ETL pipeline first: `docker compose run --rm training python main_workflow.py --states CE`")
+    else:
+        st.error(f"Could not load confidence interval: {e}")

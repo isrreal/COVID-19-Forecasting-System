@@ -23,27 +23,23 @@ logger = logging.getLogger(__name__)
 # Summary Statistics
 # ==========================================================
 def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
-    try:
-        result = session.execute(
-            select(
-                func.count(CasoCovid.id).label("total_records"),
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-                func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed_per_day"),
-                func.avg(CasoCovid.new_deaths).label("avg_new_deaths_per_day"),
-            )
+    result = session.execute(
+        select(
+            func.count(CasoCovid.id).label("total_records"),
+            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
+            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed_per_day"),
+            func.avg(CasoCovid.new_deaths).label("avg_new_deaths_per_day"),
         )
-        row = result.mappings().one()
-        return {
-            "total_records": int(row["total_records"] or 0),
-            "total_confirmed": float(row["total_confirmed"] or 0),
-            "total_deaths": float(row["total_deaths"] or 0),
-            "avg_new_confirmed_per_day": float(row["avg_new_confirmed_per_day"] or 0),
-            "avg_new_deaths_per_day": float(row["avg_new_deaths_per_day"] or 0),
-        }
-    except SQLAlchemyError:
-        logger.exception("Error fetching global statistics.")
-        return {"error": "Could not retrieve global statistics."}
+    )
+    row = result.mappings().one()
+    return {
+        "total_records": int(row["total_records"] or 0),
+        "total_confirmed": float(row["total_confirmed"] or 0),
+        "total_deaths": float(row["total_deaths"] or 0),
+        "avg_new_confirmed_per_day": float(row["avg_new_confirmed_per_day"] or 0),
+        "avg_new_deaths_per_day": float(row["avg_new_deaths_per_day"] or 0),
+    }
 
 
 # ==========================================================
@@ -51,37 +47,33 @@ def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
 # ==========================================================
 def get_city_stats(city_name: str, state: str, session: Session) -> Dict[str, Union[str, float]]:
     normalized_city_name = unidecode(city_name).lower()
-    try:
-        result = session.execute(
-            select(
-                CasoCovid.city,
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-                func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed"),
-                func.avg(CasoCovid.new_deaths).label("avg_new_deaths"),
-            )
-            .where(
-                CasoCovid.city == normalized_city_name,
-                CasoCovid.state == state,
-                CasoCovid.city.isnot(None),
-                CasoCovid.city != "N/A"
-            )
-            .group_by(CasoCovid.city)
+    result = session.execute(
+        select(
+            CasoCovid.city,
+            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
+            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed"),
+            func.avg(CasoCovid.new_deaths).label("avg_new_deaths"),
         )
-        row = result.mappings().one_or_none()
-        if row is None:
-            return {"error": f"No statistics found for {city_name} - {state}."}
+        .where(
+            CasoCovid.city == normalized_city_name,
+            CasoCovid.state == state,
+            CasoCovid.city.isnot(None),
+            CasoCovid.city != "N/A"
+        )
+        .group_by(CasoCovid.city)
+    )
+    row = result.mappings().one_or_none()
+    if row is None:
+        return None
 
-        return {
-            "city": row["city"],
-            "total_confirmed": float(row["total_confirmed"] or 0),
-            "total_deaths": float(row["total_deaths"] or 0),
-            "avg_new_confirmed": float(row["avg_new_confirmed"] or 0),
-            "avg_new_deaths": float(row["avg_new_deaths"] or 0),
-        }
-    except SQLAlchemyError:
-        logger.exception(f"Error fetching statistics for city {city_name}.")
-        return {"error": f"Could not retrieve statistics for city {city_name}."}
+    return {
+        "city": row["city"],
+        "total_confirmed": float(row["total_confirmed"] or 0),
+        "total_deaths": float(row["total_deaths"] or 0),
+        "avg_new_confirmed": float(row["avg_new_confirmed"] or 0),
+        "avg_new_deaths": float(row["avg_new_deaths"] or 0),
+    }
 
 
 # ==========================================================
@@ -226,34 +218,30 @@ def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dic
 # Confidence Intervals
 # ==========================================================
 def _get_confidence_interval(session: Session, metric_col: Column, metric_name: str, confidence = 0.95):
-    try:
-        result = session.execute(
-            select(
-                func.avg(metric_col).label("mean"),
-                func.stddev(metric_col).label("stddev"),
-                func.count(metric_col).label("n")
-            ).where(metric_col.isnot(None))
-        )
-        row = result.mappings().one_or_none()
-        if not row or row["n"] < 2:
-            return {"error": "Insufficient data"}
+    result = session.execute(
+        select(
+            func.avg(metric_col).label("mean"),
+            func.stddev(metric_col).label("stddev"),
+            func.count(metric_col).label("n")
+        ).where(metric_col.isnot(None))
+    )
+    row = result.mappings().one_or_none()
+    if not row or row["n"] < 2:
+        raise ValueError(f"Insufficient data to compute confidence interval for '{metric_name}'.")
 
-        mean = float(row["mean"])
-        stddev = float(row["stddev"])
-        n = int(row["n"])
-        sem = stddev / np.sqrt(n)
-        h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
+    mean = float(row["mean"])
+    stddev = float(row["stddev"])
+    n = int(row["n"])
+    sem = stddev / np.sqrt(n)
+    h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
 
-        return {
-            "metric": metric_name,
-            "mean": mean,
-            "lower": mean - h,
-            "upper": mean + h,
-            "n": n
-        }
-    except Exception:
-        logger.exception(f"Error calculating confidence interval for {metric_name}.")
-        return {"error": "Error calculating confidence interval."}
+    return {
+        "metric": metric_name,
+        "mean": mean,
+        "lower": mean - h,
+        "upper": mean + h,
+        "n": n
+    }
 
 
 def get_confidence_interval_cases(session: Session, confidence = 0.95):

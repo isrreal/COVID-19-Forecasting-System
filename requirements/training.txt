@@ -1,5 +1,8 @@
 -r base.txt
 
+SQLAlchemy~=2.0.35
+psycopg2-binary~=2.9.9
+
 scipy>=1.11.0
 scikit-learn~=1.5.2
 torch==2.1.2+cu121
