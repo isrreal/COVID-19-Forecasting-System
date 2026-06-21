@@ -27,7 +27,7 @@ def forecast_entire_state(
 ):
     forecast = get_forecast_for_entire_state(state_code.upper(), days)
     if not forecast or "forecast" not in forecast:
-        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Previsão não disponível para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Forecast not available for {state_code}")
     return forecast
 
 @router.get(
@@ -42,7 +42,7 @@ def forecast_state_with_confidence(
 ):
     forecast_ci = get_forecast_with_confidence(state_code.upper(), days, confidence)
     if not forecast_ci or "forecast_with_confidence" not in forecast_ci:
-        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Previsão não disponível para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Forecast not available for {state_code}")
     return forecast_ci
 
 @router.get(
@@ -56,7 +56,7 @@ def forecast_all_cities(
 ):
     forecast = get_forecast_for_state(state_code.upper(), days)
     if not forecast or not forecast.get("forecasts"):
-        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Nenhuma previsão encontrada para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"No forecast found for {state_code}")
     return forecast
 
 @router.get(
@@ -72,5 +72,5 @@ def forecast_specific_city(
     normalized_city_name = unidecode(city_name)
     forecast = get_forecast_for_city(state_code.upper(), normalized_city_name.lower(), days)
     if not forecast or "forecast" not in forecast:
-        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Nenhuma previsão encontrada para {city_name} ({state_code})")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"No forecast found for {city_name} ({state_code})")
     return forecast

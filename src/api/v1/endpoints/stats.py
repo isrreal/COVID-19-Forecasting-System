@@ -18,12 +18,12 @@ router: APIRouter = APIRouter()
 logger = logging.getLogger(__name__)
 
 # ==========================================================
-# Endpoints de Estatísticas (JSON)
+# Statistics Endpoints (JSON)
 # ==========================================================
 
 @router.get("/summary", response_model = SummaryStats)
 async def get_summary(db: AsyncSession = Depends(get_async_session)):
-    """Retorna estatísticas gerais resumidas."""
+    """Returns aggregated summary statistics."""
     return await stats_service.get_summary_stats(db)
 
 
@@ -33,13 +33,13 @@ async def get_city(
     state: str = Path(min_length = 2, max_length = 2, example = "CE"),
     db: AsyncSession = Depends(get_async_session)
 ):
-    """Retorna estatísticas agregadas para uma cidade específica."""
+    """Returns aggregated statistics for a specific city."""
     return await stats_service.get_city_stats(city_name, state, db)
 
 
 @router.get("/top-cities", response_model = CityConfirmedList)
 async def top_cities(limit: int = 10, db: AsyncSession = Depends(get_async_session)):
-    """Retorna as cidades com maior número de casos confirmados acumulados."""
+    """Returns cities with the highest cumulative confirmed case counts."""
     try:
         result = await stats_service.get_top_cities(limit, db)
 
@@ -49,23 +49,23 @@ async def top_cities(limit: int = 10, db: AsyncSession = Depends(get_async_sessi
         return {"data": result}
 
     except SQLAlchemyError as e:
-        logger.exception(f"Erro de banco de dados ao buscar top cidades: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
+        logger.exception(f"Database error while fetching top cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Database access error.")
 
     except Exception as e:
-        logger.exception(f"Erro inesperado ao buscar top cidades: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
+        logger.exception(f"Unexpected error while fetching top cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Internal server error.")
 
 
 @router.get("/chi-square/state-deaths", response_model = ChiSquareResult)
 async def chi_square_test(db: AsyncSession = Depends(get_async_session)):
-    """Realiza teste qui-quadrado entre estado e ocorrência de mortes."""
+    """Performs a chi-square test between state and death occurrence."""
     return await stats_service.chi_square_state_deaths(db)
 
 
 @router.get("/most-deadly-cities", response_model = CityMortalityList)
 async def get_most_deadly_cities(limit: int = 10, db: AsyncSession = Depends(get_async_session)):
-    """Retorna as cidades com maior taxa de mortalidade (mortes / casos confirmados)."""
+    """Returns cities with the highest mortality rate (deaths / confirmed cases)."""
     try:
         result = await stats_service.get_most_deadly_cities(limit, db)
 
@@ -75,17 +75,17 @@ async def get_most_deadly_cities(limit: int = 10, db: AsyncSession = Depends(get
         return {"data": result}
 
     except SQLAlchemyError as e:
-        logger.exception(f"Erro de banco de dados ao buscar cidades mais letais: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
+        logger.exception(f"Database error while fetching most deadly cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Database access error.")
 
     except Exception as e:
-        logger.exception(f"Erro inesperado ao buscar cidades mais letais: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
+        logger.exception(f"Unexpected error while fetching most deadly cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Internal server error.")
 
 
 @router.get("/least-affected-cities", response_model = CityMortalityList)
 async def get_least_affected_cities(limit: int = 10, db: AsyncSession = Depends(get_async_session)):
-    """Retorna as cidades com menor número de casos confirmados acumulados."""
+    """Returns cities with the lowest cumulative confirmed case counts."""
     try:
         result = await stats_service.get_least_affected_cities(limit, db)
 
@@ -95,15 +95,15 @@ async def get_least_affected_cities(limit: int = 10, db: AsyncSession = Depends(
         return {"data": result}
 
     except SQLAlchemyError as e:
-        logger.exception(f"Erro de banco de dados ao buscar cidades menos afetadas: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
+        logger.exception(f"Database error while fetching least affected cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Database access error.")
 
     except Exception as e:
-        logger.exception(f"Erro inesperado ao buscar cidades menos afetadas: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
+        logger.exception(f"Unexpected error while fetching least affected cities: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Internal server error.")
 
 # -----------------------------------------------------------
-# Intervalos de confiança (JSON)
+# Confidence Intervals (JSON)
 # -----------------------------------------------------------
 
 @router.get("/confidence/cases", response_model = ConfidenceInterval)
@@ -111,12 +111,12 @@ async def confidence_interval_cases(
     confidence: float = Query(0.95, ge = 0.8, le = 0.99),
     db: AsyncSession = Depends(get_async_session)
 ):
-    """Retorna o intervalo de confiança da média de novos casos diários."""
+    """Returns the confidence interval for the mean of daily new confirmed cases."""
     try:
         return await stats_service.get_confidence_interval_cases(db, confidence)
     except Exception as e:
-        logger.exception(f"Erro ao calcular IC de casos: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
+        logger.exception(f"Error calculating confidence interval for cases: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Error calculating confidence interval: {str(e)}")
 
 
 @router.get("/confidence/deaths", response_model = ConfidenceInterval)
@@ -124,20 +124,20 @@ async def confidence_interval_deaths(
     confidence: float = Query(0.95, ge = 0.8, le = 0.99),
     db: AsyncSession = Depends(get_async_session)
 ):
-    """Retorna o intervalo de confiança da média de novas mortes diárias."""
+    """Returns the confidence interval for the mean of daily new deaths."""
     try:
         return await stats_service.get_confidence_interval_deaths(db, confidence)
     except Exception as e:
-        logger.exception(f"Erro ao calcular IC de mortes: {e}")
-        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
+        logger.exception(f"Error calculating confidence interval for deaths: {e}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Error calculating confidence interval: {str(e)}")
 
 
 @router.get("/plot/histogram", response_class = StreamingResponse)
 async def histogram_plot(
-    metric: str = Query("new_confirmed", description = "Métrica para o histograma"),
-    bin_width: int = Query(100, description = "Largura dos intervalos (bins)"),
-    max_value: int = Query(10000, description = "Valor máximo exibido no eixo X"),
+    metric: str = Query("new_confirmed", description = "Metric to plot in the histogram"),
+    bin_width: int = Query(100, description = "Width of histogram bins"),
+    max_value: int = Query(10000, description = "Maximum value displayed on the X axis"),
     db: AsyncSession = Depends(get_async_session)
 ):
-    """Endpoint que delega a geração do histograma para o serviço."""
+    """Returns a PNG histogram for the selected metric."""
     return await stats_service.generate_histogram(metric, bin_width, max_value, db)
