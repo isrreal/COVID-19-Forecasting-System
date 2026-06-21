@@ -1,5 +1,5 @@
 import logging
-from fastapi import APIRouter, Depends, Query, HTTPException, Path
+from fastapi import APIRouter, Depends, Query, HTTPException, Path, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
@@ -44,17 +44,17 @@ async def top_cities(limit: int = 10, db: AsyncSession = Depends(get_async_sessi
         result = await stats_service.get_top_cities(limit, db)
 
         if isinstance(result, dict) and "error" in result:
-            raise HTTPException(status_code = 500, detail = result["error"])
+            raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = result["error"])
 
         return {"data": result}
 
     except SQLAlchemyError as e:
         logger.exception(f"Erro de banco de dados ao buscar top cidades: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro ao acessar o banco de dados.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
 
     except Exception as e:
         logger.exception(f"Erro inesperado ao buscar top cidades: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
 
 
 @router.get("/chi-square/state-deaths", response_model = ChiSquareResult)
@@ -70,17 +70,17 @@ async def get_most_deadly_cities(limit: int = 10, db: AsyncSession = Depends(get
         result = await stats_service.get_most_deadly_cities(limit, db)
 
         if isinstance(result, dict) and "error" in result:
-            raise HTTPException(status_code = 500, detail = result["error"])
+            raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = result["error"])
 
         return {"data": result}
 
     except SQLAlchemyError as e:
         logger.exception(f"Erro de banco de dados ao buscar cidades mais letais: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro ao acessar o banco de dados.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
 
     except Exception as e:
         logger.exception(f"Erro inesperado ao buscar cidades mais letais: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
 
 
 @router.get("/least-affected-cities", response_model = CityMortalityList)
@@ -90,17 +90,17 @@ async def get_least_affected_cities(limit: int = 10, db: AsyncSession = Depends(
         result = await stats_service.get_least_affected_cities(limit, db)
 
         if isinstance(result, dict) and "error" in result:
-            raise HTTPException(status_code = 500, detail = result["error"])
+            raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = result["error"])
 
         return {"data": result}
 
     except SQLAlchemyError as e:
         logger.exception(f"Erro de banco de dados ao buscar cidades menos afetadas: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro ao acessar o banco de dados.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro ao acessar o banco de dados.")
 
     except Exception as e:
         logger.exception(f"Erro inesperado ao buscar cidades menos afetadas: {e}")
-        raise HTTPException(status_code = 500, detail = "Erro interno no servidor.")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = "Erro interno no servidor.")
 
 # -----------------------------------------------------------
 # Intervalos de confiança (JSON)
@@ -116,7 +116,7 @@ async def confidence_interval_cases(
         return await stats_service.get_confidence_interval_cases(db, confidence)
     except Exception as e:
         logger.exception(f"Erro ao calcular IC de casos: {e}")
-        raise HTTPException(status_code = 500, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
 
 
 @router.get("/confidence/deaths", response_model = ConfidenceInterval)
@@ -129,7 +129,7 @@ async def confidence_interval_deaths(
         return await stats_service.get_confidence_interval_deaths(db, confidence)
     except Exception as e:
         logger.exception(f"Erro ao calcular IC de mortes: {e}")
-        raise HTTPException(status_code = 500, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
+        raise HTTPException(status_code = status.HTTP_500_INTERNAL_SERVER_ERROR, detail = f"Erro ao calcular intervalo de confiança: {str(e)}")
 
 
 @router.get("/plot/histogram", response_class = StreamingResponse)
