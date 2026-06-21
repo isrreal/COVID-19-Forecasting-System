@@ -2,8 +2,10 @@ from fastapi import APIRouter, HTTPException, Query, Path
 from unidecode import unidecode
 
 from src.api.v1.schemas.forecast import (
-    ForecastResponse, 
-    ForecastResponseByCity
+    ForecastResponse,
+    ForecastResponseByCity,
+    ForecastCityResponse,
+    ForecastConfidenceResponse,
 )
 from src.api.v1.services.forecast_service import (
     get_forecast_for_state, 
@@ -29,7 +31,8 @@ def forecast_entire_state(
     return forecast
 
 @router.get(
-    "/state/{state_code}/confidence", 
+    "/state/{state_code}/confidence",
+    response_model = ForecastConfidenceResponse,
     summary = "Previsão multi-step com intervalo de confiança para o estado agregado"
 )
 def forecast_state_with_confidence(
@@ -57,7 +60,8 @@ def forecast_all_cities(
     return forecast
 
 @router.get(
-    "/city/{state_code}/{city_name}", 
+    "/city/{state_code}/{city_name}",
+    response_model = ForecastCityResponse,
     summary = "Previsão multi-step para uma cidade específica de um estado"
 )
 def forecast_specific_city(
