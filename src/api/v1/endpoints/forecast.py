@@ -28,7 +28,6 @@ def forecast_entire_state(
         raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
     return forecast
 
-
 @router.get(
     "/state/{state_code}/confidence", 
     summary = "Previsão multi-step com intervalo de confiança para o estado agregado"
@@ -43,7 +42,6 @@ def forecast_state_with_confidence(
         raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
     return forecast_ci
 
-
 @router.get(
     "/cities/{state_code}", 
     response_model = ForecastResponseByCity,
@@ -57,7 +55,6 @@ def forecast_all_cities(
     if not forecast or not forecast.get("forecasts"):
         raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {state_code}")
     return forecast
-
 
 @router.get(
     "/city/{state_code}/{city_name}", 

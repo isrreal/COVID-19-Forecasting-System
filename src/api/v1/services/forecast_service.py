@@ -157,6 +157,8 @@ def _get_initial_sequence(session, state_code: str, seq_length: int, city: str |
         )
         .where(CasoCovid.state == state_code)
         .where(CasoCovid.new_confirmed >= 0)
+        .group_by(CasoCovid.city, CasoCovid.state)
+        .having(func.sum(CasoCovid.last_available_confirmed) > 0)
     )
 
     if city:

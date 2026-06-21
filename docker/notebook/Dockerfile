@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY requirements /tmp/requirements
 
-RUN pip install --no-cache-dir -r /tmp/requirements/notebook.txt
+RUN pip install --no-cache-dir --timeout 300 -r /tmp/requirements/notebook.txt
 
 RUN chown -R jovyan:users /app
