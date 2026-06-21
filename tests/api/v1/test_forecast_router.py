@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from src.api.v1.endpoints.forecast import router as forecast_router
 
 app = FastAPI()
@@ -27,7 +27,7 @@ def test_forecast_entire_state_success(mocker):
         return_value={"state": "CE", "model_run_id": "abc", "forecast": [FORECAST_ITEM]}
     )
     response = client.get("/forecast/state/CE")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["state"] == "CE"
     assert len(data["forecast"]) == 1
@@ -39,18 +39,18 @@ def test_forecast_entire_state_not_found(mocker):
         return_value={}
     )
     response = client.get("/forecast/state/XX")
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert "Forecast not available" in response.json()["detail"]
 
 
 def test_forecast_entire_state_invalid_state_code():
     response = client.get("/forecast/state/CCC")
-    assert response.status_code == 422
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 def test_forecast_entire_state_days_out_of_range():
-    assert client.get("/forecast/state/CE?days=0").status_code == 422
-    assert client.get("/forecast/state/CE?days=31").status_code == 422
+    assert client.get("/forecast/state/CE?days=0").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert client.get("/forecast/state/CE?days=31").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 def test_forecast_entire_state_default_days(mocker):
@@ -77,7 +77,7 @@ def test_forecast_confidence_success(mocker):
         }
     )
     response = client.get("/forecast/state/CE/confidence")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["confidence_level"] == 0.95
     assert len(data["forecast_with_confidence"]) == 1
@@ -89,12 +89,12 @@ def test_forecast_confidence_not_found(mocker):
         return_value={}
     )
     response = client.get("/forecast/state/XX/confidence")
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 def test_forecast_confidence_param_out_of_range():
-    assert client.get("/forecast/state/CE/confidence?confidence=0.3").status_code == 422
-    assert client.get("/forecast/state/CE/confidence?confidence=1.0").status_code == 422
+    assert client.get("/forecast/state/CE/confidence?confidence=0.3").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert client.get("/forecast/state/CE/confidence?confidence=1.0").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 # ==========================================================
@@ -111,7 +111,7 @@ def test_forecast_all_cities_success(mocker):
         }
     )
     response = client.get("/forecast/cities/CE")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     assert "fortaleza" in response.json()["forecasts"]
 
 
@@ -121,7 +121,7 @@ def test_forecast_all_cities_not_found(mocker):
         return_value={"forecasts": {}}
     )
     response = client.get("/forecast/cities/XX")
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert "No forecast found" in response.json()["detail"]
 
 
@@ -140,7 +140,7 @@ def test_forecast_specific_city_success(mocker):
         }
     )
     response = client.get("/forecast/city/CE/Fortaleza")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["city"] == "fortaleza"
     assert len(data["forecast"]) == 1
@@ -152,7 +152,7 @@ def test_forecast_specific_city_not_found(mocker):
         return_value={}
     )
     response = client.get("/forecast/city/CE/Fortaleza")
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert "No forecast found" in response.json()["detail"]
 
 
