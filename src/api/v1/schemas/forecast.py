@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 from pydantic import BaseModel, Field
-from datetime import date
+from datetime import date as Date
 
 
 class PredictionRequest(BaseModel):
@@ -22,7 +20,7 @@ class ForecastItem(BaseModel):
         predicted_value: Predicted number of new confirmed cases
     """
 
-    date: date = Field(..., description="Forecasted date")
+    date: Date = Field(..., description="Forecasted date")
     predicted_value: float = Field(..., description="Predicted number of new confirmed cases")
 
 
