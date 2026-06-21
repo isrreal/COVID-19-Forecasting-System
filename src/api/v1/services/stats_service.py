@@ -11,7 +11,7 @@ from unidecode import unidecode
 
 from sqlalchemy import func, select, Column
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from fastapi.responses import StreamingResponse
 
 from src.models.casos_covid import CasoCovid
@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 # ==========================================================
 # Summary Statistics
 # ==========================================================
-async def get_summary_stats(session: AsyncSession) -> Dict[str, Union[int, float, str]]:
+def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
     try:
-        result = await session.execute(
+        result = session.execute(
             select(
                 func.count(CasoCovid.id).label("total_records"),
                 func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
@@ -49,10 +49,10 @@ async def get_summary_stats(session: AsyncSession) -> Dict[str, Union[int, float
 # ==========================================================
 # City Statistics
 # ==========================================================
-async def get_city_stats(city_name: str, state: str, session: AsyncSession) -> Dict[str, Union[str, float]]:
+def get_city_stats(city_name: str, state: str, session: Session) -> Dict[str, Union[str, float]]:
     normalized_city_name = unidecode(city_name).lower()
     try:
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
@@ -87,9 +87,9 @@ async def get_city_stats(city_name: str, state: str, session: AsyncSession) -> D
 # ==========================================================
 # Top / Most Deadly / Least Affected Cities
 # ==========================================================
-async def get_top_cities(limit: int, session: AsyncSession):
+def get_top_cities(limit: int, session: Session):
     try:
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
@@ -106,11 +106,11 @@ async def get_top_cities(limit: int, session: AsyncSession):
         return {"error": "Could not retrieve cities with the most confirmed cases."}
 
 
-async def get_most_deadly_cities(limit: int, session: AsyncSession):
+def get_most_deadly_cities(limit: int, session: Session):
     try:
         mortality_rate = (func.sum(CasoCovid.last_available_deaths) /
                           func.sum(CasoCovid.last_available_confirmed)).label("mortality_rate")
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
@@ -138,12 +138,12 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession):
         return {"error": "Could not retrieve data."}
 
 
-async def get_least_affected_cities(limit: int, session: AsyncSession):
+def get_least_affected_cities(limit: int, session: Session):
     try:
         total_confirmed_agg = func.sum(CasoCovid.last_available_confirmed)
         total_deaths_agg = func.sum(CasoCovid.last_available_deaths)
         mortality_rate = (total_deaths_agg / total_confirmed_agg).label("mortality_rate")
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
@@ -174,10 +174,10 @@ async def get_least_affected_cities(limit: int, session: AsyncSession):
 # ==========================================================
 # Chi-Square Test
 # ==========================================================
-async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str, float, Dict]]:
+def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dict]]:
     """Performs a chi-square test for association between state and death occurrence."""
     try:
-        result = await session.execute(
+        result = session.execute(
             select(CasoCovid.state, CasoCovid.last_available_deaths)
             .where(CasoCovid.state.isnot(None))
         )
@@ -225,9 +225,9 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
 # ==========================================================
 # Confidence Intervals
 # ==========================================================
-async def _get_confidence_interval(session: AsyncSession, metric_col: Column, metric_name: str, confidence = 0.95):
+def _get_confidence_interval(session: Session, metric_col: Column, metric_name: str, confidence = 0.95):
     try:
-        result = await session.execute(
+        result = session.execute(
             select(
                 func.avg(metric_col).label("mean"),
                 func.stddev(metric_col).label("stddev"),
@@ -256,19 +256,15 @@ async def _get_confidence_interval(session: AsyncSession, metric_col: Column, me
         return {"error": "Error calculating confidence interval."}
 
 
-async def get_confidence_interval_cases(session, confidence = 0.95):
-    return await _get_confidence_interval(session, CasoCovid.new_confirmed, "new_confirmed", confidence)
+def get_confidence_interval_cases(session: Session, confidence = 0.95):
+    return _get_confidence_interval(session, CasoCovid.new_confirmed, "new_confirmed", confidence)
 
 
-async def get_confidence_interval_deaths(session, confidence = 0.95):
-    return await _get_confidence_interval(session, CasoCovid.new_deaths, "new_deaths", confidence)
+def get_confidence_interval_deaths(session: Session, confidence = 0.95):
+    return _get_confidence_interval(session, CasoCovid.new_deaths, "new_deaths", confidence)
 
-async def generate_histogram(
-    metric: str,
-    bin_width: int,
-    max_value: int,
-    session: AsyncSession
-):
+
+def generate_histogram(metric: str, bin_width: int, max_value: int, session: Session):
     """Generates a histogram for the selected metric and returns a PNG image."""
 
     metric_map = {
@@ -282,7 +278,7 @@ async def generate_histogram(
         return {"error": f"Invalid metric: {metric}"}
 
     try:
-        result = await session.execute(
+        result = session.execute(
             select(metric_map[metric]).where(metric_map[metric].isnot(None))
         )
         values = [row[0] for row in result.fetchall() if row[0] is not None]
