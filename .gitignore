@@ -20,7 +20,6 @@ mlruns/
 __pycache__
 *.pyc
 *.ipynb_checkpoints
-tests/
 
 data/
 docker-commands.txt
