@@ -1,230 +1,179 @@
 import logging
-from pathlib import Path
-import io
-import requests
+from datetime import date, datetime
 
-import pandas
+import pandas as pd
+import pysus
 from pandas import DataFrame
-import numpy
+from sqlalchemy import inspect, text
 
-from unidecode import unidecode
-from sqlalchemy import text, inspect
+from database import create_tables, sync_engine
+from src.models.caso_dengue import CasoDengue
 
-from database import sync_engine, create_tables
-from src.models.casos_covid import CasoCovid
-
-DATA_PATH = "data/caso_full.csv"
-TABLE_NAME = CasoCovid.__tablename__
-DATASET_URL = "https://data.brasil.io/dataset/covid19/caso_full.csv.gz"
+TABLE_NAME = CasoDengue.__tablename__
+SINAN_DISEASE = "DENG"
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+logger = logging.getLogger(__name__)
+
+_BLANK_CODES = {"", "0", "00"}
+
+
+def _parse_date(value: str) -> date | None:
+    s = str(value).strip()
+    if not s or len(s) != 8:
+        return None
+    try:
+        return datetime.strptime(s, "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def _parse_int_code(value: str | int) -> int | None:
+    s = str(value).strip()
+    if s in _BLANK_CODES:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
 
 
 # -----------------------------
 # Extraction
 # -----------------------------
-def extract_data(data_path: str, url: str) -> DataFrame | None:
-    logging.info("--- Extraction Stage ---")
-    path = Path(data_path)
+def extract_data(years: list[int]) -> DataFrame:
+    logger.info("--- Extraction Stage ---")
+    parquet_files: list[str] = pysus.sinan(SINAN_DISEASE, years)
 
-    if path.exists():
-        logging.info(f"Reading local file: {data_path}")
-        return pandas.read_csv(path)
+    frames = [pd.read_parquet(path) for path in parquet_files]
+    df = pd.concat(frames, ignore_index=True)
 
-    logging.info("Downloading dataset...")
-    response = requests.get(url)
-    response.raise_for_status()
-    dataframe = pandas.read_csv(io.BytesIO(response.content), compression="gzip")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    dataframe.to_csv(path, index=False)
-
-    return dataframe
+    logger.info(f"Extracted {len(df)} raw records from {years}.")
+    return df
 
 
 # -----------------------------
-# Cleaning & Conversion
+# Transformation
 # -----------------------------
-def clean_and_convert(dataframe: DataFrame) -> DataFrame:
-    dataframe = dataframe.copy()
+def transform(df: DataFrame) -> DataFrame:
+    logger.info("--- Transformation Stage ---")
 
-    # Normalize city names
-    if "city" in dataframe.columns:
-        dataframe["city"] = dataframe["city"].astype("category")
+    raw_cols = [
+        "DT_NOTIFIC",
+        "SEM_NOT",
+        "NU_ANO",
+        "SG_UF_NOT",
+        "ID_MUNICIP",
+        "CLASSI_FIN",
+        "EVOLUCAO",
+        "HOSPITALIZ",
+        "SOROTIPO",
+        "DT_OBITO",
+        "CS_SEXO",
+        "NU_IDADE_N",
+    ]
+    df = df[raw_cols].copy()
 
-    # Convert numeric columns
-    for col in ["estimated_population", "estimated_population_2019", "city_ibge_code"]:
-        if col in dataframe.columns:
-            dataframe[col] = pandas.to_numeric(dataframe[col], errors="coerce").astype(
-                "Int32"
-            )
+    df["dt_notific"] = df["DT_NOTIFIC"].astype(str).apply(_parse_date)
+    df = df[df["dt_notific"].notna()].copy()
 
-    # Convert place_type
-    if "place_type" in dataframe.columns:
-        city_normalized = unidecode("City")
-        state_normalized = unidecode("State")
+    df["sem_not"] = df["SEM_NOT"].astype(str).str.strip()
+    df["nu_ano"] = pd.to_numeric(df["NU_ANO"], errors="coerce").astype("Int16")
+    df["sg_uf_not"] = pd.to_numeric(df["SG_UF_NOT"], errors="coerce").astype("Int16")
+    df["id_municip"] = pd.to_numeric(df["ID_MUNICIP"], errors="coerce").astype("Int32")
 
-        dataframe["place_type"] = (
-            dataframe["place_type"]
-            .replace({city_normalized: "C", state_normalized: "S"})
-            .astype("category")
-        )
+    for raw, out in [
+        ("CLASSI_FIN", "classi_fin"),
+        ("EVOLUCAO", "evolucao"),
+        ("HOSPITALIZ", "hospitaliz"),
+        ("SOROTIPO", "sorotipo"),
+    ]:
+        df[out] = df[raw].astype(str).apply(_parse_int_code)
 
-    # Replace broken null values
-    dataframe.replace(
-        ["<NA>", "NA", "NaN", "nan", "null", "", "Importados/Indefinidos"],
-        numpy.nan,
-        inplace=True,
-    )
+    df["dt_obito"] = df["DT_OBITO"].astype(str).apply(_parse_date)
 
-    # Filter invalid cities
-    if "city" in dataframe.columns:
-        initial_count = len(dataframe)
-        dataframe = dataframe[dataframe["city"].notna()].copy()
-        removed = initial_count - len(dataframe)
+    # Keep only M/F; ignore and empty become None
+    df["cs_sexo"] = df["CS_SEXO"].astype(str).str.strip()
+    df["cs_sexo"] = df["cs_sexo"].where(df["cs_sexo"].isin(["M", "F"]), other=None)
 
-        logging.info(
-            f"Removed {removed} rows with invalid city values. Remaining: {len(dataframe)}"
-        )
+    df["nu_idade_n"] = pd.to_numeric(df["NU_IDADE_N"], errors="coerce").astype("Int32")
 
-    # Convert dates
-    if "date" in dataframe.columns and "last_available_date" in dataframe.columns:
-        dataframe["date"] = pandas.to_datetime(dataframe["date"], errors="coerce")
-        dataframe["last_available_date"] = pandas.to_datetime(
-            dataframe["last_available_date"], errors="coerce"
-        )
+    output_cols = [
+        "dt_notific",
+        "sem_not",
+        "nu_ano",
+        "sg_uf_not",
+        "id_municip",
+        "classi_fin",
+        "evolucao",
+        "hospitaliz",
+        "sorotipo",
+        "dt_obito",
+        "cs_sexo",
+        "nu_idade_n",
+    ]
+    df = df[output_cols].where(pd.notna(df[output_cols]), other=None)
 
-        dataframe.sort_values(["state", "city", "date"], inplace=True)
-
-    # Recalculate cases per 100k
-    if (
-        "last_available_confirmed" in dataframe.columns
-        and "estimated_population" in dataframe.columns
-    ):
-        dataframe["confirmed_per_100k"] = (
-            dataframe["last_available_confirmed"] / dataframe["estimated_population"]
-        ) * 100000
-
-    # Drop old column
-    if "last_available_confirmed_per_100k_inhabitants" in dataframe.columns:
-        dataframe.drop(
-            columns=["last_available_confirmed_per_100k_inhabitants"], inplace=True
-        )
-
-    return dataframe
-
-
-# -----------------------------
-# Analysis
-# -----------------------------
-def analyze_missing_columns(dataframe: DataFrame, stage: str) -> None:
-    logging.info(f"--- Missing Values Analysis (Stage: {stage}) ---")
-    missing_counts = dataframe.isna().sum()
-    missing_counts = missing_counts[missing_counts > 0]
-
-    if missing_counts.empty:
-        logging.info("No missing values found.")
-        return
-
-    total_rows = len(dataframe)
-    summary = DataFrame(
-        {
-            "missing_count": missing_counts,
-            "missing_rate": (missing_counts / total_rows) * 100,
-        }
-    ).sort_values("missing_rate", ascending=False)
-
-    summary["missing_rate"] = summary["missing_rate"].map("{:.2f}%".format)
-
-    logging.info(f"{len(summary)} columns with missing values:\n{summary}")
-
-
-# -----------------------------
-# Prepare for ORM
-# -----------------------------
-def prepare_for_orm(dataframe: DataFrame, model_cls) -> DataFrame:
-    model_columns = [c.name for c in model_cls.__table__.columns if c.name != "id"]
-    dataframe_final = dataframe.copy()
-    dataframe_final.rename(columns={"date": "datetime"}, inplace=True)
-    dataframe_final = dataframe_final.reindex(columns=model_columns)
-    return dataframe_final
+    logger.info(f"Transformed {len(df)} records.")
+    return df
 
 
 # -----------------------------
 # Loading
 # -----------------------------
-def load_data(dataframe: DataFrame) -> None:
-    logging.info("--- Loading Stage ---")
-    if dataframe.empty:
-        logging.warning("DataFrame is empty. Nothing to insert.")
+def load_data(df: DataFrame) -> None:
+    logger.info("--- Loading Stage ---")
+    if df.empty:
+        logger.warning("DataFrame is empty. Nothing to insert.")
         return
 
-    try:
-        with sync_engine.begin() as conn:
-            logging.info(f"Truncating table '{TABLE_NAME}'...")
-            conn.execute(text(f'TRUNCATE TABLE "{TABLE_NAME}" RESTART IDENTITY;'))
-            logging.info(f"Table '{TABLE_NAME}' cleared.")
+    with sync_engine.begin() as conn:
+        logger.info(f"Truncating '{TABLE_NAME}'...")
+        conn.execute(text(f'TRUNCATE TABLE "{TABLE_NAME}" RESTART IDENTITY;'))
 
-            logging.info(f"Inserting {len(dataframe)} rows into '{TABLE_NAME}'...")
-            dataframe.to_sql(
-                TABLE_NAME,
-                con=conn,
-                if_exists="append",
-                index=False,
-                method="multi",
-                chunksize=10_000,
-            )
-            logging.info("Data loaded successfully!")
-
-    except Exception as e:
-        logging.error(f"Error inserting data: {e}")
+        logger.info(f"Inserting {len(df)} rows...")
+        df.to_sql(
+            TABLE_NAME,
+            con=conn,
+            if_exists="append",
+            index=False,
+            method="multi",
+            chunksize=10_000,
+        )
+        logger.info("Data loaded successfully.")
 
 
 # -----------------------------
 # ETL Pipeline
 # -----------------------------
-def main_etl_pipeline():
-    logging.info("Starting ETL pipeline...")
+def main_etl_pipeline(years: list[int] | None = None) -> None:
+    if years is None:
+        years = [2023, 2024]
 
+    logger.info("Starting ETL pipeline...")
     inspector = inspect(sync_engine)
 
-    # Skip ETL if table exists with data
     if inspector.has_table(TABLE_NAME):
         with sync_engine.connect() as conn:
             row_count = conn.execute(
-                text(f"SELECT COUNT(1) FROM {TABLE_NAME};")
+                text(f'SELECT COUNT(1) FROM "{TABLE_NAME}";')
             ).scalar()
             if row_count and row_count > 0:
-                logging.info(
+                logger.info(
                     f"Table '{TABLE_NAME}' already has {row_count} rows. Skipping ETL."
                 )
                 return
     else:
         create_tables()
-        logging.info("Table structure ensured.")
+        logger.info("Table created.")
 
-    # Extraction
-    dataframe = extract_data(DATA_PATH, DATASET_URL)
-    if dataframe is None or dataframe.empty:
-        logging.error("Data extraction failed. Aborting ETL.")
-        return
-    logging.info(f"Extracted dataset with {len(dataframe)} rows.")
+    df_raw = extract_data(years)
+    df_clean = transform(df_raw)
+    load_data(df_clean)
 
-    analyze_missing_columns(dataframe, stage="Raw")
-
-    # Cleaning / Transformation
-    dataframe_transformed = clean_and_convert(dataframe)
-
-    analyze_missing_columns(dataframe_transformed, stage="Transformed")
-
-    logging.info(f"Transformed dataset with {len(dataframe_transformed)} rows.")
-
-    # Load
-    # load_data(dataframe_transformed)
-
-    logging.info("ETL pipeline completed successfully!")
+    logger.info("ETL pipeline completed successfully.")
 
 
 if __name__ == "__main__":
