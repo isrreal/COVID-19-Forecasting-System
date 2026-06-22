@@ -1,4 +1,4 @@
-FROM ghcr.io/mlflow/mlflow:v2.16.2
+FROM ghcr.io/mlflow/mlflow:v2.22.5
 
 RUN pip install --no-cache-dir psycopg2-binary
 
