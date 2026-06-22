@@ -33,8 +33,8 @@ def get_summary(db: Session = Depends(get_sync_session)):
 
 @router.get("/city/{city_name}/{state}", response_model = CityStats)
 def get_city(
-    city_name: str = Path(min_length = 2, example = "Fortaleza"),
-    state: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    city_name: str = Path(min_length = 2, examples={"default": {"value": "Fortaleza"}}),
+    state: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
     db: Session = Depends(get_sync_session)
 ):
     """Returns aggregated statistics for a specific city."""

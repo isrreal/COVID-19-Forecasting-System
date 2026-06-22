@@ -22,7 +22,7 @@ router: APIRouter = APIRouter()
     summary = "Multi-step forecast for the entire state (aggregated)"
 )
 def forecast_entire_state(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
     days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     forecast = get_forecast_for_entire_state(state_code.upper(), days)
@@ -36,7 +36,7 @@ def forecast_entire_state(
     summary = "Multi-step forecast with confidence interval for the aggregated state"
 )
 def forecast_state_with_confidence(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
     days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast"),
     confidence: float = Query(default = 0.95, ge = 0.5, le = 0.99, description = "Confidence level for the interval (e.g. 0.95 for 95%)")
 ):
@@ -51,7 +51,7 @@ def forecast_state_with_confidence(
     summary = "Multi-step forecast for all cities in a state"
 )
 def forecast_all_cities(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
     days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     forecast = get_forecast_for_state(state_code.upper(), days)
@@ -65,8 +65,8 @@ def forecast_all_cities(
     summary = "Multi-step forecast for a specific city in a state"
 )
 def forecast_specific_city(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
-    city_name: str = Path(min_length = 1, example = "Fortaleza"),
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
+    city_name: str = Path(min_length = 1, examples={"default": {"value": "Fortaleza"}}),
     days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     normalized_city_name = unidecode(city_name)
