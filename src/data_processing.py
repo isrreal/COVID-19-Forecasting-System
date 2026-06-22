@@ -76,56 +76,58 @@ def transform(raw_df: DataFrame) -> DataFrame:
     ]
     dengue_df = raw_df[sinan_cols].copy()
 
-    dengue_df["dt_notific"] = dengue_df["DT_NOTIFIC"].astype(str).apply(_parse_date)
-    dengue_df = dengue_df[dengue_df["dt_notific"].notna()].copy()
+    dengue_df["notification_date"] = (
+        dengue_df["DT_NOTIFIC"].astype(str).apply(_parse_date)
+    )
+    dengue_df = dengue_df[dengue_df["notification_date"].notna()].copy()
 
-    dengue_df["sem_not"] = dengue_df["SEM_NOT"].astype(str).str.strip()
-    dengue_df["nu_ano"] = pd.to_numeric(dengue_df["NU_ANO"], errors="coerce").astype(
+    dengue_df["epidemiological_week"] = dengue_df["SEM_NOT"].astype(str).str.strip()
+    dengue_df["year"] = pd.to_numeric(dengue_df["NU_ANO"], errors="coerce").astype(
         "Int16"
     )
-    dengue_df["sg_uf_not"] = pd.to_numeric(
+    dengue_df["state_ibge_code"] = pd.to_numeric(
         dengue_df["SG_UF_NOT"], errors="coerce"
     ).astype("Int16")
-    dengue_df["id_municip"] = pd.to_numeric(
+    dengue_df["municipality_ibge_code"] = pd.to_numeric(
         dengue_df["ID_MUNICIP"], errors="coerce"
     ).astype("Int32")
 
     categorical_cols = [
-        ("CLASSI_FIN", "classi_fin"),
-        ("EVOLUCAO", "evolucao"),
-        ("HOSPITALIZ", "hospitaliz"),
-        ("SOROTIPO", "sorotipo"),
+        ("CLASSI_FIN", "final_classification"),
+        ("EVOLUCAO", "outcome"),
+        ("HOSPITALIZ", "hospitalized"),
+        ("SOROTIPO", "serotype"),
     ]
     for sinan_col, model_col in categorical_cols:
         dengue_df[model_col] = dengue_df[sinan_col].astype(str).apply(_parse_int_code)
 
-    dengue_df["dt_obito"] = dengue_df["DT_OBITO"].astype(str).apply(_parse_date)
+    dengue_df["death_date"] = dengue_df["DT_OBITO"].astype(str).apply(_parse_date)
 
     # Keep only M/F; ignore and empty become None
-    dengue_df["cs_sexo"] = dengue_df["CS_SEXO"].astype(str).str.strip()
-    dengue_df["cs_sexo"] = dengue_df["cs_sexo"].where(
-        dengue_df["cs_sexo"].isin(["M", "F"]), other=None
+    dengue_df["sex"] = dengue_df["CS_SEXO"].astype(str).str.strip()
+    dengue_df["sex"] = dengue_df["sex"].where(
+        dengue_df["sex"].isin(["M", "F"]), other=None
     )
 
-    dengue_df["nu_idade_n"] = pd.to_numeric(
+    dengue_df["age_encoded"] = pd.to_numeric(
         dengue_df["NU_IDADE_N"], errors="coerce"
     ).astype("Int32")
 
     model_cols = [
-        "dt_notific",
-        "sem_not",
-        "nu_ano",
-        "sg_uf_not",
-        "id_municip",
-        "classi_fin",
-        "evolucao",
-        "hospitaliz",
-        "sorotipo",
-        "dt_obito",
-        "cs_sexo",
-        "nu_idade_n",
+        "notification_date",
+        "epidemiological_week",
+        "year",
+        "state_ibge_code",
+        "municipality_ibge_code",
+        "final_classification",
+        "outcome",
+        "hospitalized",
+        "serotype",
+        "death_date",
+        "sex",
+        "age_encoded",
     ]
-    clean_df = dengue_df[model_cols].where(pd.notna(dengue_df[model_cols]), other=None)
+    clean_df = dengue_df[model_cols].where(pd.notna(dengue_df[model_cols]), other=None)  # type: ignore[arg-type]
 
     logger.info(f"Transformed {len(clean_df)} records.")
     return clean_df
