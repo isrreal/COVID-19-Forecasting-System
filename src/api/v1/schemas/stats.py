@@ -12,10 +12,14 @@ class SummaryStats(BaseModel):
         avg_new_deaths_per_day: Average daily new deaths
     """
 
-    total_records: int = Field(..., description="Total number of records in the database")
+    total_records: int = Field(
+        ..., description="Total number of records in the database"
+    )
     total_confirmed: float = Field(..., description="Cumulative confirmed cases")
     total_deaths: float = Field(..., description="Cumulative deaths")
-    avg_new_confirmed_per_day: float = Field(..., description="Average daily new confirmed cases")
+    avg_new_confirmed_per_day: float = Field(
+        ..., description="Average daily new confirmed cases"
+    )
     avg_new_deaths_per_day: float = Field(..., description="Average daily new deaths")
 
 
@@ -31,9 +35,13 @@ class CityStats(BaseModel):
     """
 
     city: str = Field(..., description="City name")
-    total_confirmed: float = Field(..., description="Cumulative confirmed cases in the city")
+    total_confirmed: float = Field(
+        ..., description="Cumulative confirmed cases in the city"
+    )
     total_deaths: float = Field(..., description="Cumulative deaths in the city")
-    avg_new_confirmed: float = Field(..., description="Average daily new confirmed cases")
+    avg_new_confirmed: float = Field(
+        ..., description="Average daily new confirmed cases"
+    )
     avg_new_deaths: float = Field(..., description="Average daily new deaths")
 
 
@@ -108,11 +116,21 @@ class ChiSquareResult(BaseModel):
     chi2_statistic: float = Field(..., description="Chi-square test statistic")
     p_value: float = Field(..., description="P-value of the test")
     degrees_of_freedom: int = Field(..., description="Degrees of freedom")
-    significance_level: float = Field(..., description="Significance threshold used (e.g. 0.05)")
-    reject_null_hypothesis: bool = Field(..., description="Whether the null hypothesis is rejected")
-    interpretation: str = Field(..., description="Plain-language interpretation of the result")
-    contingency_table: dict[str, dict[str, int]] = Field(..., description="Observed frequency contingency table")
-    expected_frequencies: list[list[float]] = Field(..., description="Expected frequencies under independence")
+    significance_level: float = Field(
+        ..., description="Significance threshold used (e.g. 0.05)"
+    )
+    reject_null_hypothesis: bool = Field(
+        ..., description="Whether the null hypothesis is rejected"
+    )
+    interpretation: str = Field(
+        ..., description="Plain-language interpretation of the result"
+    )
+    contingency_table: dict[str, dict[str, int]] = Field(
+        ..., description="Observed frequency contingency table"
+    )
+    expected_frequencies: list[list[float]] = Field(
+        ..., description="Expected frequencies under independence"
+    )
 
 
 class ConfidenceInterval(BaseModel):
