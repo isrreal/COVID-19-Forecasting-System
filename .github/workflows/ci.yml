@@ -26,3 +26,6 @@ jobs:
 
       - name: Run pytest
         run: pytest tests/ -v --tb=short
+        env:
+          DATABASE_URL: "postgresql+psycopg2://user:pass@localhost/test_db"
+          MLFLOW_TRACKING_URI: "http://localhost:5000"
