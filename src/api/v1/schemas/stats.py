@@ -111,7 +111,7 @@ class ChiSquareResult(BaseModel):
     significance_level: float = Field(..., description="Significance threshold used (e.g. 0.05)")
     reject_null_hypothesis: bool = Field(..., description="Whether the null hypothesis is rejected")
     interpretation: str = Field(..., description="Plain-language interpretation of the result")
-    contingency_table: dict[str, dict[int, int]] = Field(..., description="Observed frequency contingency table")
+    contingency_table: dict[str, dict[str, int]] = Field(..., description="Observed frequency contingency table")
     expected_frequencies: list[list[float]] = Field(..., description="Expected frequencies under independence")
 
 
