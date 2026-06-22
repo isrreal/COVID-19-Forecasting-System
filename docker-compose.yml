@@ -74,6 +74,19 @@ services:
         condition: service_healthy
 
 
+  test:
+    build:
+      context: .
+      dockerfile: docker/fastapi/Dockerfile
+      target: test
+    environment:
+      PYTHONPATH: /app
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+    profiles:
+      - test
+
+
   training:
     build:
       context: .
