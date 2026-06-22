@@ -18,7 +18,7 @@ from database import sync_engine
 mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
 client = MlflowClient()
 
-model_cache = {}
+model_cache: dict[str, dict] = {}
 
 
 def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
@@ -112,7 +112,7 @@ def _load_model_from_mlflow(state_code: str):
 # ==========================================================
 
 
-def get_prediction_for_state(state_code: str, sequence: list) -> dict:
+def get_prediction_for_state(state_code: str, sequence: list) -> dict | None:
     """Performs a single-step prediction for a given input sequence."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:

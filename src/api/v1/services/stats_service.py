@@ -9,7 +9,8 @@ from scipy.stats import chi2_contingency
 import matplotlib.pyplot as plt
 from unidecode import unidecode
 
-from sqlalchemy import func, select, Column
+from sqlalchemy import func, select
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from fastapi.responses import StreamingResponse
@@ -47,7 +48,7 @@ def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
 # ==========================================================
 def get_city_stats(
     city_name: str, state: str, session: Session
-) -> Dict[str, Union[str, float]]:
+) -> Dict[str, Union[str, float]] | None:
     normalized_city_name = unidecode(city_name).lower()
     result = session.execute(
         select(
@@ -234,7 +235,10 @@ def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dic
 # Confidence Intervals
 # ==========================================================
 def _get_confidence_interval(
-    session: Session, metric_col: Column, metric_name: str, confidence=0.95
+    session: Session,
+    metric_col: InstrumentedAttribute,
+    metric_name: str,
+    confidence=0.95,
 ):
     result = session.execute(
         select(

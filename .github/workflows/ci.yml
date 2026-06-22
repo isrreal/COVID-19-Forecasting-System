@@ -17,6 +17,8 @@ jobs:
           python-version: "3.11"
       - name: Run ruff
         run: pip install ruff~=0.11.13 -q && ruff check src/ && ruff format --check src/
+      - name: Run mypy
+        run: pip install mypy~=1.16.0 sqlalchemy~=2.0.35 types-requests -q && mypy src/
 
   test:
     name: Run tests
