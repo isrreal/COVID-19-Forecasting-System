@@ -1,7 +1,7 @@
 .PHONY: test up down train
 
 test:
-	docker compose --profile test run --rm test
+	docker compose --profile test run --rm --build test
 
 up:
 	docker compose up -d
