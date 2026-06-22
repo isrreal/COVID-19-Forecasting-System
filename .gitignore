@@ -16,8 +16,10 @@ __pycache__/
 
 mlruns/
 
-notebooks
-feature_engineering.py
-predict.py
+.git
+__pycache__
+*.pyc
+*.ipynb_checkpoints
+
 data/
 docker-commands.txt

@@ -1,25 +1,114 @@
-from pydantic import BaseModel
-from typing import List, Dict
-from datetime import date
+from pydantic import BaseModel, Field
+from datetime import date as Date
+
 
 class PredictionRequest(BaseModel):
-    sequence: List[float]
+    """Input sequence for a single-step prediction.
+
+    Attributes:
+        sequence: Ordered list of historical case values fed into the model
+    """
+
+    sequence: list[float] = Field(..., description="Ordered list of historical case values fed into the model")
+
 
 class ForecastItem(BaseModel):
-    date: date
-    predicted_value: float
+    """A single forecasted data point.
 
-class ForecastResponseByCity(BaseModel):
-    state: str
-    model_run_id: str
-    forecasts: Dict[str, List[ForecastItem]]  
+    Attributes:
+        date: Forecasted date
+        predicted_value: Predicted number of new confirmed cases
+    """
+
+    date: Date = Field(..., description="Forecasted date")
+    predicted_value: float = Field(..., description="Predicted number of new confirmed cases")
+
 
 class ForecastResponse(BaseModel):
-    state: str
-    model_run_id: str
-    forecast: List[ForecastItem]
+    """Multi-step forecast for an entire state (aggregated).
+
+    Attributes:
+        state: State code (e.g. CE, SP)
+        model_run_id: MLflow run ID of the model used for inference
+        forecast: Ordered list of daily forecasted values
+    """
+
+    state: str = Field(..., description="State code (e.g. CE, SP)")
+    model_run_id: str = Field(..., description="MLflow run ID of the model used for inference")
+    forecast: list[ForecastItem] = Field(..., description="Ordered list of daily forecasted values")
+
+
+class ForecastResponseByCity(BaseModel):
+    """Multi-step forecast broken down by city within a state.
+
+    Attributes:
+        state: State code (e.g. CE, SP)
+        model_run_id: MLflow run ID of the model used for inference
+        forecasts: Mapping of city name to its ordered list of forecasted values
+    """
+
+    state: str = Field(..., description="State code (e.g. CE, SP)")
+    model_run_id: str = Field(..., description="MLflow run ID of the model used for inference")
+    forecasts: dict[str, list[ForecastItem]] = Field(..., description="Mapping of city name to its ordered list of forecasted values")
+
+
+class ForecastCityResponse(BaseModel):
+    """Multi-step forecast for a specific city within a state.
+
+    Attributes:
+        state: State code (e.g. CE, SP)
+        city: City name
+        model_run_id: MLflow run ID of the model used for inference
+        forecast: Ordered list of daily forecasted values
+    """
+
+    state: str = Field(..., description="State code (e.g. CE, SP)")
+    city: str = Field(..., description="City name")
+    model_run_id: str = Field(..., description="MLflow run ID of the model used for inference")
+    forecast: list[ForecastItem] = Field(..., description="Ordered list of daily forecasted values")
+
+
+class ConfidenceForecastItem(BaseModel):
+    """A single forecasted data point with confidence interval bounds.
+
+    Attributes:
+        date: Forecasted date
+        predicted_mean: Mean predicted number of new confirmed cases
+        lower_bound: Lower bound of the confidence interval
+        upper_bound: Upper bound of the confidence interval
+    """
+
+    date: Date = Field(..., description="Forecasted date")
+    predicted_mean: float = Field(..., description="Mean predicted number of new confirmed cases")
+    lower_bound: float = Field(..., description="Lower bound of the confidence interval")
+    upper_bound: float = Field(..., description="Upper bound of the confidence interval")
+
+
+class ForecastConfidenceResponse(BaseModel):
+    """Multi-step forecast with confidence intervals for an entire state.
+
+    Attributes:
+        state: State code (e.g. CE, SP)
+        model_run_id: MLflow run ID of the model used for inference
+        confidence_level: Confidence level used (e.g. 0.95)
+        forecast_with_confidence: Ordered list of forecasted values with confidence bounds
+    """
+
+    state: str = Field(..., description="State code (e.g. CE, SP)")
+    model_run_id: str = Field(..., description="MLflow run ID of the model used for inference")
+    confidence_level: float = Field(..., description="Confidence level used (e.g. 0.95)")
+    forecast_with_confidence: list[ConfidenceForecastItem] = Field(..., description="Ordered list of forecasted values with confidence bounds")
+
 
 class PredictionResponse(BaseModel):
-    state: str
-    model_run_id: str
-    prediction: float
+    """Single-step prediction result.
+
+    Attributes:
+        state: State code (e.g. CE, SP)
+        model_run_id: MLflow run ID of the model used for inference
+        prediction: Predicted number of new confirmed cases for the next step
+    """
+
+    state: str = Field(..., description="State code (e.g. CE, SP)")
+    model_run_id: str = Field(..., description="MLflow run ID of the model used for inference")
+    prediction: float = Field(..., description="Predicted number of new confirmed cases for the next step")

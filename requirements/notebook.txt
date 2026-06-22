@@ -1,0 +1,8 @@
+-r base.txt
+
+scipy>=1.11.0
+scikit-learn~=1.5.2
+matplotlib~=3.8.4
+jupyterlab
+ipykernel
+holidays~=0.57

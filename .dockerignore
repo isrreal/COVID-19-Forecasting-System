@@ -1,2 +1,13 @@
 Dockerfile
 docker-compose.yml
+.pytest_cache
+.git
+__pycache__
+*.pyc
+*.ipynb_checkpoints
+notebooks/
+data/
+*.csv
+.env
+.venv/
+venv/

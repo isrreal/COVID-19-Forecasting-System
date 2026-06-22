@@ -11,7 +11,7 @@ from unidecode import unidecode
 
 from sqlalchemy import func, select, Column
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from fastapi.responses import StreamingResponse
 
 from src.models.casos_covid import CasoCovid
@@ -20,76 +20,68 @@ logger = logging.getLogger(__name__)
 
 
 # ==========================================================
-# Estatísticas gerais
+# Summary Statistics
 # ==========================================================
-async def get_summary_stats(session: AsyncSession) -> Dict[str, Union[int, float, str]]:
-    try:
-        result = await session.execute(
-            select(
-                func.count(CasoCovid.id).label("total_records"),
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-                func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed_per_day"),
-                func.avg(CasoCovid.new_deaths).label("avg_new_deaths_per_day"),
-            )
+def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
+    result = session.execute(
+        select(
+            func.count(CasoCovid.id).label("total_records"),
+            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
+            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed_per_day"),
+            func.avg(CasoCovid.new_deaths).label("avg_new_deaths_per_day"),
         )
-        row = result.mappings().one()
-        return {
-            "total_records": int(row["total_records"] or 0),
-            "total_confirmed": float(row["total_confirmed"] or 0),
-            "total_deaths": float(row["total_deaths"] or 0),
-            "avg_new_confirmed_per_day": float(row["avg_new_confirmed_per_day"] or 0),
-            "avg_new_deaths_per_day": float(row["avg_new_deaths_per_day"] or 0),
-        }
-    except SQLAlchemyError:
-        logger.exception("Erro ao buscar estatísticas globais.")
-        return {"error": "Não foi possível obter as estatísticas globais."}
+    )
+    row = result.mappings().one()
+    return {
+        "total_records": int(row["total_records"] or 0),
+        "total_confirmed": float(row["total_confirmed"] or 0),
+        "total_deaths": float(row["total_deaths"] or 0),
+        "avg_new_confirmed_per_day": float(row["avg_new_confirmed_per_day"] or 0),
+        "avg_new_deaths_per_day": float(row["avg_new_deaths_per_day"] or 0),
+    }
 
 
 # ==========================================================
-# Estatísticas por cidade
+# City Statistics
 # ==========================================================
-async def get_city_stats(city_name: str, state: str, session: AsyncSession) -> Dict[str, Union[str, float]]:
+def get_city_stats(city_name: str, state: str, session: Session) -> Dict[str, Union[str, float]]:
     normalized_city_name = unidecode(city_name).lower()
-    try:
-        result = await session.execute(
-            select(
-                CasoCovid.city,
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-                func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed"),
-                func.avg(CasoCovid.new_deaths).label("avg_new_deaths"),
-            )
-            .where(
-                CasoCovid.city == normalized_city_name,
-                CasoCovid.state == state,
-                CasoCovid.city.isnot(None),
-                CasoCovid.city != "N/A"
-            )
-            .group_by(CasoCovid.city)
+    result = session.execute(
+        select(
+            CasoCovid.city,
+            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
+            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed"),
+            func.avg(CasoCovid.new_deaths).label("avg_new_deaths"),
         )
-        row = result.mappings().one_or_none()
-        if row is None:
-            return {"error": f"Nenhuma estatística encontrada para {city_name} - {state}."}
+        .where(
+            CasoCovid.city == normalized_city_name,
+            CasoCovid.state == state,
+            CasoCovid.city.isnot(None),
+            CasoCovid.city != "N/A"
+        )
+        .group_by(CasoCovid.city)
+    )
+    row = result.mappings().one_or_none()
+    if row is None:
+        return None
 
-        return {
-            "city": row["city"],
-            "total_confirmed": float(row["total_confirmed"] or 0),
-            "total_deaths": float(row["total_deaths"] or 0),
-            "avg_new_confirmed": float(row["avg_new_confirmed"] or 0),
-            "avg_new_deaths": float(row["avg_new_deaths"] or 0),
-        }
-    except SQLAlchemyError:
-        logger.exception(f"Erro ao buscar estatísticas para a cidade {city_name}.")
-        return {"error": f"Não foi possível obter as estatísticas para a cidade {city_name}."}
+    return {
+        "city": row["city"],
+        "total_confirmed": float(row["total_confirmed"] or 0),
+        "total_deaths": float(row["total_deaths"] or 0),
+        "avg_new_confirmed": float(row["avg_new_confirmed"] or 0),
+        "avg_new_deaths": float(row["avg_new_deaths"] or 0),
+    }
 
 
 # ==========================================================
-# Cidades com mais casos / mais letais / menos letais
+# Top / Most Deadly / Least Affected Cities
 # ==========================================================
-async def get_top_cities(limit: int, session: AsyncSession):
+def get_top_cities(limit: int, session: Session):
     try:
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 func.sum(CasoCovid.last_available_confirmed).label("total_confirmed")
@@ -102,15 +94,15 @@ async def get_top_cities(limit: int, session: AsyncSession):
         rows = result.mappings().all()
         return [{"city": r["city"], "total_confirmed": float(r["total_confirmed"] or 0)} for r in rows]
     except SQLAlchemyError:
-        logger.exception("Erro ao buscar top cidades.")
-        return {"error": "Não foi possível obter as cidades com mais casos confirmados."}
+        logger.exception("Error fetching top cities.")
+        return {"error": "Could not retrieve cities with the most confirmed cases."}
 
 
-async def get_most_deadly_cities(limit: int, session: AsyncSession):
+def get_most_deadly_cities(limit: int, session: Session):
     try:
         mortality_rate = (func.sum(CasoCovid.last_available_deaths) /
                           func.sum(CasoCovid.last_available_confirmed)).label("mortality_rate")
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
@@ -134,16 +126,16 @@ async def get_most_deadly_cities(limit: int, session: AsyncSession):
             } for r in rows
         ]
     except SQLAlchemyError:
-        logger.exception("Erro ao buscar cidades mais letais.")
-        return {"error": "Não foi possível obter os dados."}
+        logger.exception("Error fetching most deadly cities.")
+        return {"error": "Could not retrieve data."}
 
 
-async def get_least_affected_cities(limit: int, session: AsyncSession):
+def get_least_affected_cities(limit: int, session: Session):
     try:
         total_confirmed_agg = func.sum(CasoCovid.last_available_confirmed)
         total_deaths_agg = func.sum(CasoCovid.last_available_deaths)
         mortality_rate = (total_deaths_agg / total_confirmed_agg).label("mortality_rate")
-        result = await session.execute(
+        result = session.execute(
             select(
                 CasoCovid.city,
                 CasoCovid.state,
@@ -167,26 +159,24 @@ async def get_least_affected_cities(limit: int, session: AsyncSession):
             } for r in rows
         ]
     except SQLAlchemyError:
-        logger.exception("Erro ao buscar cidades menos letais.")
-        return {"error": "Não foi possível obter os dados."}
+        logger.exception("Error fetching least affected cities.")
+        return {"error": "Could not retrieve data."}
 
 
 # ==========================================================
-# Teste Qui-quadrado entre estado e ocorrência de mortes
+# Chi-Square Test
 # ==========================================================
-async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str, float, Dict]]:
-    """
-    Realiza teste qui-quadrado para verificar associação entre estado e ocorrência de mortes.
-    """
+def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dict]]:
+    """Performs a chi-square test for association between state and death occurrence."""
     try:
-        result = await session.execute(
+        result = session.execute(
             select(CasoCovid.state, CasoCovid.last_available_deaths)
             .where(CasoCovid.state.isnot(None))
         )
         rows = result.fetchall()
 
         if not rows:
-            return {"error": "Nenhum dado disponível para realizar o teste qui-quadrado."}
+            return {"error": "No data available to perform the chi-square test."}
 
         df = pd.DataFrame(rows, columns=["state", "deaths"])
         df["death_occurred"] = (df["deaths"] > 0).astype(int)
@@ -195,85 +185,75 @@ async def chi_square_state_deaths(session: AsyncSession) -> Dict[str, Union[str,
         chi2, p, dof, expected = chi2_contingency(contingency)
 
         significance_level = 0.05
-        reject = bool(p < significance_level)  
+        reject = bool(p < significance_level)
 
         interpretation = (
-            f"Existe associação estatisticamente significativa entre estado e ocorrência de mortes (p < {significance_level})"
+            f"There is a statistically significant association between state and death occurrence (p < {significance_level})"
             if reject else
-            f"Não há associação estatisticamente significativa entre estado e ocorrência de mortes (p ≥ {significance_level})"
+            f"There is no statistically significant association between state and death occurrence (p ≥ {significance_level})"
         )
 
         return {
             "test": "chi_square",
-            "null_hypothesis": "A ocorrência de mortes é independente do estado",
+            "null_hypothesis": "Death occurrence is independent of the state",
             "chi2_statistic": float(chi2),
             "p_value": float(p),
             "degrees_of_freedom": int(dof),
             "significance_level": significance_level,
-            "reject_null_hypothesis": reject, 
+            "reject_null_hypothesis": reject,
             "interpretation": interpretation,
             "contingency_table": contingency.to_dict(),
             "expected_frequencies": expected.tolist(),
         }
 
     except SQLAlchemyError:
-        logger.exception("Erro SQL ao realizar teste qui-quadrado.")
-        return {"error": "Não foi possível realizar o teste qui-quadrado devido a erro de banco de dados."}
+        logger.exception("SQL error while performing chi-square test.")
+        return {"error": "Could not perform the chi-square test due to a database error."}
     except Exception:
-        logger.exception("Erro inesperado ao realizar o teste qui-quadrado.")
-        return {"error": "Erro inesperado ao realizar o teste estatístico."}
+        logger.exception("Unexpected error while performing chi-square test.")
+        return {"error": "Unexpected error while performing the statistical test."}
 
 
 # ==========================================================
-# Intervalos de Confiança
+# Confidence Intervals
 # ==========================================================
-async def _get_confidence_interval(session: AsyncSession, metric_col: Column, metric_name: str, confidence = 0.95):
-    try:
-        result = await session.execute(
-            select(
-                func.avg(metric_col).label("mean"),
-                func.stddev(metric_col).label("stddev"),
-                func.count(metric_col).label("n")
-            ).where(metric_col.isnot(None))
-        )
-        row = result.mappings().one_or_none()
-        if not row or row["n"] < 2:
-            return {"error": "Dados insuficientes"}
+def _get_confidence_interval(session: Session, metric_col: Column, metric_name: str, confidence = 0.95):
+    result = session.execute(
+        select(
+            func.avg(metric_col).label("mean"),
+            func.stddev(metric_col).label("stddev"),
+            func.count(metric_col).label("n")
+        ).where(metric_col.isnot(None))
+    )
+    row = result.mappings().one_or_none()
+    if not row or row["n"] < 2:
+        raise ValueError(f"Insufficient data to compute confidence interval for '{metric_name}'.")
 
-        mean = float(row["mean"])
-        stddev = float(row["stddev"])
-        n = int(row["n"])
-        sem = stddev / np.sqrt(n)
-        h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
+    mean = float(row["mean"])
+    stddev = float(row["stddev"])
+    n = int(row["n"])
+    sem = stddev / np.sqrt(n)
+    h = sem * stats.t.ppf((1 + confidence) / 2., n - 1)
 
-        return {
-            "metric": metric_name,
-            "mean": mean,
-            "lower": mean - h,
-            "upper": mean + h,
-            "n": n
-        }
-    except Exception:
-        logger.exception(f"Erro no IC para {metric_name}.")
-        return {"error": "Erro ao calcular IC."}
+    return {
+        "metric": metric_name,
+        "mean": mean,
+        "lower": mean - h,
+        "upper": mean + h,
+        "n": n
+    }
 
 
-async def get_confidence_interval_cases(session, confidence = 0.95):
-    return await _get_confidence_interval(session, CasoCovid.new_confirmed, "new_confirmed", confidence)
+def get_confidence_interval_cases(session: Session, confidence = 0.95):
+    return _get_confidence_interval(session, CasoCovid.new_confirmed, "new_confirmed", confidence)
 
 
-async def get_confidence_interval_deaths(session, confidence = 0.95):
-    return await _get_confidence_interval(session, CasoCovid.new_deaths, "new_deaths", confidence)
+def get_confidence_interval_deaths(session: Session, confidence = 0.95):
+    return _get_confidence_interval(session, CasoCovid.new_deaths, "new_deaths", confidence)
 
-async def generate_histogram(
-    metric: str,
-    bin_width: int,
-    max_value: int,
-    session: AsyncSession
-):
-    """
-    Gera um histograma da métrica selecionada e retorna uma imagem PNG.
-    """
+
+def generate_histogram(metric: str, bin_width: int, max_value: int, session: Session):
+    """Generates a histogram for the selected metric and returns a PNG image."""
 
     metric_map = {
         "new_confirmed": CasoCovid.new_confirmed,
@@ -283,25 +263,25 @@ async def generate_histogram(
     }
 
     if metric not in metric_map:
-        return {"error": f"Métrica inválida: {metric}"}
+        return {"error": f"Invalid metric: {metric}"}
 
     try:
-        result = await session.execute(
+        result = session.execute(
             select(metric_map[metric]).where(metric_map[metric].isnot(None))
         )
         values = [row[0] for row in result.fetchall() if row[0] is not None]
 
         if not values:
-            return {"error": "Nenhum dado disponível para gerar o histograma."}
+            return {"error": "No data available to generate the histogram."}
 
         df = pd.DataFrame(values, columns = [metric])
         df = df[df[metric] <= max_value]
 
         plt.figure(figsize=(8, 5))
         plt.hist(df[metric], bins = np.arange(0, max_value + bin_width, bin_width), edgecolor = "black")
-        plt.title(f"Histograma de {metric}")
+        plt.title(f"Histogram of {metric}")
         plt.xlabel(metric)
-        plt.ylabel("Frequência")
+        plt.ylabel("Frequency")
         plt.grid(True, linestyle = "--", alpha = 0.6)
 
         buf = io.BytesIO()
@@ -312,8 +292,8 @@ async def generate_histogram(
         return StreamingResponse(buf, media_type = "image/png")
 
     except SQLAlchemyError:
-        logger.exception("Erro ao gerar histograma.")
-        return {"error": "Erro de banco de dados ao gerar o histograma."}
+        logger.exception("Database error while generating histogram.")
+        return {"error": "Database error while generating the histogram."}
     except Exception:
-        logger.exception("Erro inesperado ao gerar histograma.")
-        return {"error": "Erro inesperado ao gerar o histograma."}
+        logger.exception("Unexpected error while generating histogram.")
+        return {"error": "Unexpected error while generating the histogram."}

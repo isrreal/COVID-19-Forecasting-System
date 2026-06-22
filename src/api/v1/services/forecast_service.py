@@ -12,7 +12,7 @@ from scipy.stats import norm
 from database import sync_engine
 
 # ==========================================================
-# Configurações gerais e Carregamento de Modelo
+# General Configuration and Model Loading
 # ==========================================================
 
 mlflow.set_tracking_uri(os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000"))
@@ -21,14 +21,12 @@ client = MlflowClient()
 model_cache = {}
 
 def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
-    """
-    Retorna a run com o menor RMSE de VALIDAÇÃO para um estado.
-    """
+    """Returns the run with the lowest validation RMSE for a given state."""
     experiment_name = f"Covid Forecasting Comparison - {state_code}"
     try:
         experiment = client.get_experiment_by_name(experiment_name)
         if not experiment:
-            print(f"Experimento '{experiment_name}' não encontrado.")
+            print(f"Experiment '{experiment_name}' not found.")
             return None
 
         runs_df = mlflow.search_runs(
@@ -38,7 +36,7 @@ def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
         )
 
         if runs_df.empty:
-            print(f"Nenhuma run encontrada para o estado {state_code}.")
+            print(f"No runs found for state {state_code}.")
             return None
 
         best_run = runs_df.iloc[0]
@@ -47,23 +45,21 @@ def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
         if "params.sequence_length" in best_run:
             seq_length = int(best_run["params.sequence_length"])
         else:
-            print(f"AVISO: 'sequence_length' não encontrado. Usando padrão 14.")
+            print(f"WARNING: 'sequence_length' not found. Using default 14.")
             seq_length = 14
 
-        print(f"Melhor Run ID para {state_code}: {run_id} (Val RMSE: {best_run.get('metrics.val_rmse', 'N/A'):.2f})")
+        print(f"Best Run ID for {state_code}: {run_id} (Val RMSE: {best_run.get('metrics.val_rmse', 'N/A'):.2f})")
         return run_id, seq_length
 
     except Exception as e:
-        print(f"Erro ao buscar melhor run para {state_code}: {e}")
+        print(f"Error fetching best run for {state_code}: {e}")
         return None
 
 
 def _load_model_from_mlflow(state_code: str):
-    """
-    Carrega o modelo PyTorch e o scaler a partir do MLflow, usando cache.
-    """
+    """Loads the PyTorch model and scaler from MLflow, using an in-memory cache."""
     if state_code in model_cache:
-        print(f"Modelo para {state_code} recuperado do cache.")
+        print(f"Model for {state_code} retrieved from cache.")
         return model_cache[state_code]
 
     result = _get_best_run_id_for_state(state_code)
@@ -76,21 +72,21 @@ def _load_model_from_mlflow(state_code: str):
         local_dir = client.download_artifacts(run_id, "preprocessor", "/tmp")
         scaler_files = [f for f in os.listdir(local_dir) if f.endswith(".pkl") or f.endswith(".gz")]
         if not scaler_files:
-            raise FileNotFoundError(f"Arquivo do scaler não encontrado em {local_dir}")
+            raise FileNotFoundError(f"Scaler file not found in {local_dir}")
         scaler_path = os.path.join(local_dir, scaler_files[0])
         scaler = joblib.load(scaler_path)
-        print(f"Scaler carregado. Range: [{scaler.data_min_[0]:.2f}, {scaler.data_max_[0]:.2f}]")
+        print(f"Scaler loaded. Range: [{scaler.data_min_[0]:.2f}, {scaler.data_max_[0]:.2f}]")
     except Exception as e:
-        print(f"Erro ao carregar scaler da run {run_id}: {e}")
+        print(f"Error loading scaler from run {run_id}: {e}")
         return None
 
     try:
         model_uri = f"runs:/{run_id}/model"
         model = mlflow.pytorch.load_model(model_uri)
         model.eval()
-        print(f"Modelo PyTorch carregado com sucesso.")
+        print(f"PyTorch model loaded successfully.")
     except Exception as e:
-        print(f"Erro ao carregar modelo PyTorch da run {run_id}: {e}")
+        print(f"Error loading PyTorch model from run {run_id}: {e}")
         return None
 
     model_cache[state_code] = {
@@ -100,18 +96,16 @@ def _load_model_from_mlflow(state_code: str):
         "seq_length": seq_length
     }
 
-    print(f"Modelo para {state_code} carregado e salvo no cache.")
+    print(f"Model for {state_code} loaded and saved to cache.")
     return model_cache[state_code]
 
 
 # ==========================================================
-# Predição única
+# Single-step Prediction
 # ==========================================================
 
 def get_prediction_for_state(state_code: str, sequence: list) -> dict:
-    """
-    Realiza uma única previsão para uma sequência de dados.
-    """
+    """Performs a single-step prediction for a given input sequence."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
         return None
@@ -122,7 +116,7 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict:
     seq_length = artifacts["seq_length"]
 
     if len(sequence) != seq_length:
-        raise ValueError(f"Tamanho da sequência ({len(sequence)}) diferente do esperado ({seq_length}).")
+        raise ValueError(f"Sequence length ({len(sequence)}) does not match expected ({seq_length}).")
 
     sequence_np = np.array(sequence, dtype = np.float32).reshape(-1, 1)
     data_scaled = scaler.transform(sequence_np)
@@ -142,13 +136,10 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict:
 
 def _get_initial_sequence(session, state_code: str, seq_length: int, city: str | None = None) -> tuple[list[float], dt] | None:
     """
-    Busca a sequência inicial de dados do banco para o loop de forecast.
-    
-    Se 'city' for None, busca os dados agregados do estado.
-    Se 'city' for preenchido, busca os dados da cidade específica.
-    
-    Adicionei 'order_by(desc())' para garantir que pegamos os dados mais recentes,
-    o que torna a lógica de 'reverse()' segura.
+    Fetches the initial data sequence from the database for the forecast loop.
+
+    Fetches aggregated state data when city is None, or city-level data otherwise.
+    Uses descending order to ensure we get the most recent records before reversing.
     """
     query = (
         select(
@@ -157,37 +148,37 @@ def _get_initial_sequence(session, state_code: str, seq_length: int, city: str |
         )
         .where(CasoCovid.state == state_code)
         .where(CasoCovid.new_confirmed >= 0)
+        .group_by(CasoCovid.city, CasoCovid.state)
+        .having(func.sum(CasoCovid.last_available_confirmed) > 0)
     )
 
     if city:
         query = query.where(CasoCovid.city == city)
-    
+
     query = query.group_by(CasoCovid.datetime).order_by(CasoCovid.datetime.desc()).limit(seq_length)
-    
+
     result = session.execute(query).all()
 
     if not result or len(result) < seq_length:
         return None
-    
-    result.reverse() 
-    
+
+    result.reverse()
+
     last_date = result[-1].datetime
     initial_sequence_values = [r.total_casos for r in result]
-    
+
     return initial_sequence_values, last_date
 
 
 def _generate_autoregressive_forecast(
-    model, 
-    scaler, 
-    initial_sequence: list, 
-    seq_length: int, 
-    days: int, 
+    model,
+    scaler,
+    initial_sequence: list,
+    seq_length: int,
+    days: int,
     last_date: dt
 ) -> list[dict]:
-    """
-    Função central que executa o loop de previsão autorregressivo.
-    """
+    """Runs the autoregressive forecast loop for the given number of days."""
     current_sequence_scaled = scaler.transform(
         np.array(initial_sequence, dtype = np.float32).reshape(-1, 1)
     )
@@ -199,7 +190,7 @@ def _generate_autoregressive_forecast(
             pred_scaled = model(input_tensor).cpu().numpy()
 
         pred_real = scaler.inverse_transform(pred_scaled)[0][0]
-        pred_real = max(0, pred_real) 
+        pred_real = max(0, pred_real)
 
         forecast.append({
             "date": (last_date + timedelta(days = i + 1)).strftime("%Y-%m-%d"),
@@ -207,35 +198,30 @@ def _generate_autoregressive_forecast(
         })
 
         current_sequence_scaled = np.vstack((
-            current_sequence_scaled[1:],  
-            pred_scaled.reshape(1, 1)     
+            current_sequence_scaled[1:],
+            pred_scaled.reshape(1, 1)
         ))
-        
+
     return forecast
 
 
-
-
 def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
-    """
-    Retorna a previsão multi-step para N dias do estado inteiro (agregado).
-    (Agora usa as funções auxiliares)
-    """
+    """Returns a multi-step forecast for the entire aggregated state."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
 
     with sync_engine.connect() as session:
         sequence_data = _get_initial_sequence(session, state_code, seq_length, city = None)
-        
+
         if not sequence_data:
-            return {"error": f"Dados insuficientes para {state_code}."}
-        
+            return {"error": f"Insufficient data for {state_code}."}
+
         initial_sequence, last_date = sequence_data
-        
+
         forecast = _generate_autoregressive_forecast(
             model, scaler, initial_sequence, seq_length, days, last_date
         )
@@ -248,13 +234,10 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
 
 
 def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
-    """
-    Gera previsões multi-step para uma cidade específica de um estado.
-    (Agora usa as funções auxiliares)
-    """
+    """Returns a multi-step forecast for a specific city within a state."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
@@ -263,8 +246,8 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
         sequence_data = _get_initial_sequence(session, state_code, seq_length, city = city)
 
         if not sequence_data:
-            return {"error": f"Dados insuficientes para {city}, {state_code}."}
-        
+            return {"error": f"Insufficient data for {city}, {state_code}."}
+
         initial_sequence, last_date = sequence_data
 
         forecast = _generate_autoregressive_forecast(
@@ -280,13 +263,10 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
 
 
 def get_forecast_for_state(state_code: str, days: int) -> dict:
-    """
-    Gera previsões multi-step para TODAS as cidades de um estado.
-    (Esta era a função duplicada - agora é a única e usa os auxiliares)
-    """
+    """Returns multi-step forecasts for all cities within a state."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
-        return {"error": f"Modelo não encontrado para {state_code}"}
+        return {"error": f"Model not found for {state_code}"}
 
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
@@ -297,21 +277,21 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
         cities = [r.city for r in session.execute(cities_query).all()]
 
         if not cities:
-            return {"error": f"Nenhuma cidade encontrada para {state_code}"}
+            return {"error": f"No cities found for {state_code}"}
 
         for city in cities:
             sequence_data = _get_initial_sequence(session, state_code, seq_length, city = city)
-            
+
             if not sequence_data:
-                print(f"WARNING: Dados insuficientes para {city} (necessário: {seq_length})")
+                print(f"WARNING: Insufficient data for {city} (required: {seq_length})")
                 continue
-            
+
             initial_sequence, last_date = sequence_data
-            
+
             city_forecast = _generate_autoregressive_forecast(
                 model, scaler, initial_sequence, seq_length, days, last_date
             )
-            
+
             forecasts_by_city[str(city)] = city_forecast
 
     return {
@@ -321,16 +301,13 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
     }
 
 def get_forecast_with_confidence(state_code: str, days: int, confidence: float = 0.95) -> dict:
-    """
-    Gera a previsão para o estado agregado com intervalos de confiança.
-    Esta função usa a 'get_forecast_for_entire_state' refatorada.
-    """
+    """Returns a multi-step forecast with confidence intervals for the aggregated state."""
     base_forecast = get_forecast_for_entire_state(state_code, days)
     if "forecast" not in base_forecast:
-        return {"error": f"Falha ao gerar previsão para {state_code}"}
+        return {"error": f"Failed to generate forecast for {state_code}"}
 
     predictions = np.array([item["predicted_value"] for item in base_forecast["forecast"]])
-    
+
     std_dev = np.maximum(predictions * 0.05, 1.0)
     z_score = norm.ppf(1 - (1 - confidence)/2)
 

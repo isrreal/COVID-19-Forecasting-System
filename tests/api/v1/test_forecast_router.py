@@ -1,143 +1,170 @@
-from fastapi.testclient import TestClient
-from fastapi import FastAPI
 import pytest
+from fastapi.testclient import TestClient
+from fastapi import FastAPI, status
 from src.api.v1.endpoints.forecast import router as forecast_router
 
 app = FastAPI()
-app.include_router(forecast_router, prefix = "/api/v1/forecast")
+app.include_router(forecast_router, prefix="/forecast")
 
 client = TestClient(app)
 
+FORECAST_ITEM = {"date": "2025-10-18", "predicted_value": 100.0}
+CONFIDENCE_ITEM = {
+    "date": "2025-10-18",
+    "predicted_mean": 100.0,
+    "lower_bound": 90.0,
+    "upper_bound": 110.0
+}
 
-def test_predict_next_day_success(mocker):
-    """
-    Testa o cenário de sucesso para a rota de predição.
-    """
-    mock_response = {
-        "state": "CE",
-        "model_run_id": "test_run_id_123",
-        "prediction": 950.5
-    }
+
+# ==========================================================
+# GET /forecast/state/{state_code}
+# ==========================================================
+
+def test_forecast_entire_state_success(mocker):
     mocker.patch(
-        "src.api.v1.endpoints.forecast.get_prediction_for_state",
-        return_value = mock_response
+        "src.api.v1.endpoints.forecast.get_forecast_for_entire_state",
+        return_value={"state": "CE", "model_run_id": "abc", "forecast": [FORECAST_ITEM]}
     )
-
-    request_payload = {
-        "sequence": [100] * 30
-    }
-
-    response = client.post("/api/v1/forecast/predict/CE", json=request_payload)
-
-    assert response.status_code == 200
-    assert response.json() == mock_response
+    response = client.get("/forecast/state/CE")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["state"] == "CE"
+    assert len(data["forecast"]) == 1
 
 
-def test_predict_next_day_model_not_found(mocker):
-    """
-    Testa o cenário onde o modelo para o estado não é encontrado (404).
-    """
+def test_forecast_entire_state_not_found(mocker):
     mocker.patch(
-        "src.api.v1.endpoints.forecast.get_prediction_for_state",
-        return_value = None
+        "src.api.v1.endpoints.forecast.get_forecast_for_entire_state",
+        return_value={}
     )
-
-    request_payload = {"sequence": [1] * 7}
-
-    response = client.post("/api/v1/forecast/predict/XX", json = request_payload)
-
-    assert response.status_code == 404
-    assert "Modelo para o estado XX não encontrado" in response.json()["detail"]
+    response = client.get("/forecast/state/XX")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "Forecast not available" in response.json()["detail"]
 
 
-def test_predict_next_day_invalid_sequence(mocker):
-    """
-    Testa o cenário onde a lógica de serviço levanta um ValueError (400).
-    """
+def test_forecast_entire_state_invalid_state_code():
+    response = client.get("/forecast/state/CCC")
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_forecast_entire_state_days_out_of_range():
+    assert client.get("/forecast/state/CE?days=0").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert client.get("/forecast/state/CE?days=31").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_forecast_entire_state_default_days(mocker):
+    mock = mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_for_entire_state",
+        return_value={"state": "CE", "model_run_id": "abc", "forecast": [FORECAST_ITEM]}
+    )
+    client.get("/forecast/state/CE")
+    mock.assert_called_once_with("CE", 7)
+
+
+# ==========================================================
+# GET /forecast/state/{state_code}/confidence
+# ==========================================================
+
+def test_forecast_confidence_success(mocker):
     mocker.patch(
-        "src.api.v1.endpoints.forecast.get_prediction_for_state",
-        side_effect = ValueError("O tamanho da sequência é inválido.")
+        "src.api.v1.endpoints.forecast.get_forecast_with_confidence",
+        return_value={
+            "state": "CE",
+            "model_run_id": "abc",
+            "confidence_level": 0.95,
+            "forecast_with_confidence": [CONFIDENCE_ITEM]
+        }
     )
-
-    request_payload = {"sequence": [1, 2, 3]}
-
-    response = client.post("/api/v1/forecast/predict/SP", json = request_payload)
-
-    assert response.status_code == 400
-    assert "O tamanho da sequência é inválido" in response.json()["detail"]
+    response = client.get("/forecast/state/CE/confidence")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["confidence_level"] == 0.95
+    assert len(data["forecast_with_confidence"]) == 1
 
 
-def test_predict_invalid_state_code_format():
-    """
-    Testa a validação do FastAPI para um state_code inválido (422).
-    """
-    request_payload = {"sequence": [1] * 7}
-
-    response = client.post("/api/v1/forecast/predict/Ceará", json = request_payload)
-
-    assert response.status_code == 422
-
-
-def test_get_forecast_success(mocker):
-    """
-    Testa o cenário de sucesso para a rota de forecast.
-    """
-    mock_response = {
-        "state": "SP",
-        "model_run_id": "test_run_id_456",
-        "forecast": [
-            {"date": "2025-10-18", "predicted_value": 1200.0},
-            {"date": "2025-10-19", "predicted_value": 1250.5}
-        ]
-    }
-    mock_get_forecast = mocker.patch(
-        "src.api.v1.endpoints.forecast.get_forecast_for_state",
-        return_value = mock_response
+def test_forecast_confidence_not_found(mocker):
+    mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_with_confidence",
+        return_value={}
     )
-
-    response = client.get("/api/v1/forecast/SP?days=2")
-
-    assert response.status_code == 200
-    assert response.json() == mock_response
-    mock_get_forecast.assert_called_once_with("SP", 2)
+    response = client.get("/forecast/state/XX/confidence")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-def test_get_forecast_default_days(mocker):
-    """
-    Testa se o valor padrão de `days` (7) é usado corretamente.
-    """
-    mock_get_forecast = mocker.patch(
-        "src.api.v1.endpoints.forecast.get_forecast_for_state",
-        return_value = {"state": "RJ", "model_run_id": "xyz", "forecast": []}
-    )
-
-    response = client.get("/api/v1/forecast/RJ")
-
-    assert response.status_code == 200
-    mock_get_forecast.assert_called_once_with("RJ", 7)
+def test_forecast_confidence_param_out_of_range():
+    assert client.get("/forecast/state/CE/confidence?confidence=0.3").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert client.get("/forecast/state/CE/confidence?confidence=1.0").status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
-def test_get_forecast_model_not_found(mocker):
-    """
-    Testa o cenário onde o modelo para o estado não é encontrado (404).
-    """
+# ==========================================================
+# GET /forecast/cities/{state_code}
+# ==========================================================
+
+def test_forecast_all_cities_success(mocker):
     mocker.patch(
         "src.api.v1.endpoints.forecast.get_forecast_for_state",
-        return_value = None
+        return_value={
+            "state": "CE",
+            "model_run_id": "abc",
+            "forecasts": {"fortaleza": [FORECAST_ITEM]}
+        }
     )
-
-    response = client.get("/api/v1/forecast/AM")
-
-    assert response.status_code == 404
-    assert "Modelo para o estado AM não encontrado" in response.json()["detail"]
+    response = client.get("/forecast/cities/CE")
+    assert response.status_code == status.HTTP_200_OK
+    assert "fortaleza" in response.json()["forecasts"]
 
 
-def test_get_forecast_invalid_days_parameter():
-    """
-    Testa a validação do FastAPI para o parâmetro `days` fora do range (422).
-    """
-    response_less = client.get("/api/v1/forecast/MG?days=0")
-    assert response_less.status_code == 422
+def test_forecast_all_cities_not_found(mocker):
+    mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_for_state",
+        return_value={"forecasts": {}}
+    )
+    response = client.get("/forecast/cities/XX")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "No forecast found" in response.json()["detail"]
 
-    response_greater = client.get("/api/v1/forecast/MG?days=31")
-    assert response_greater.status_code == 422
+
+# ==========================================================
+# GET /forecast/city/{state_code}/{city_name}
+# ==========================================================
+
+def test_forecast_specific_city_success(mocker):
+    mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_for_city",
+        return_value={
+            "state": "CE",
+            "city": "fortaleza",
+            "model_run_id": "abc",
+            "forecast": [FORECAST_ITEM]
+        }
+    )
+    response = client.get("/forecast/city/CE/Fortaleza")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["city"] == "fortaleza"
+    assert len(data["forecast"]) == 1
+
+
+def test_forecast_specific_city_not_found(mocker):
+    mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_for_city",
+        return_value={}
+    )
+    response = client.get("/forecast/city/CE/Fortaleza")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert "No forecast found" in response.json()["detail"]
+
+
+def test_forecast_specific_city_normalizes_accents(mocker):
+    mock = mocker.patch(
+        "src.api.v1.endpoints.forecast.get_forecast_for_city",
+        return_value={
+            "state": "CE",
+            "city": "sobral",
+            "model_run_id": "abc",
+            "forecast": [FORECAST_ITEM]
+        }
+    )
+    client.get("/forecast/city/CE/Sóbral")
+    assert mock.call_args[0][1] == "sobral"

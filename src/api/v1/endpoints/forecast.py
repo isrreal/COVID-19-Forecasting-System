@@ -1,75 +1,76 @@
-from fastapi import APIRouter, HTTPException, Query, Path
+from fastapi import APIRouter, HTTPException, Query, Path, status
 from unidecode import unidecode
 
 from src.api.v1.schemas.forecast import (
-    ForecastResponse, 
-    ForecastResponseByCity
+    ForecastResponse,
+    ForecastResponseByCity,
+    ForecastCityResponse,
+    ForecastConfidenceResponse,
 )
 from src.api.v1.services.forecast_service import (
-    get_forecast_for_state, 
-    get_forecast_for_entire_state, 
-    get_forecast_with_confidence, 
+    get_forecast_for_state,
+    get_forecast_for_entire_state,
+    get_forecast_with_confidence,
     get_forecast_for_city
 )
 
 router: APIRouter = APIRouter()
 
 @router.get(
-    "/state/{state_code}", 
+    "/state/{state_code}",
     response_model = ForecastResponse,
-    summary = "Previsão multi-step para o estado inteiro (agregado)"
+    summary = "Multi-step forecast for the entire state (aggregated)"
 )
 def forecast_entire_state(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
-    days: int = Query(default = 7, ge = 1, le = 30)
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
+    days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     forecast = get_forecast_for_entire_state(state_code.upper(), days)
     if not forecast or "forecast" not in forecast:
-        raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Forecast not available for {state_code}")
     return forecast
 
-
 @router.get(
-    "/state/{state_code}/confidence", 
-    summary = "Previsão multi-step com intervalo de confiança para o estado agregado"
+    "/state/{state_code}/confidence",
+    response_model = ForecastConfidenceResponse,
+    summary = "Multi-step forecast with confidence interval for the aggregated state"
 )
 def forecast_state_with_confidence(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
-    days: int = Query(default = 7, ge = 1, le = 30),
-    confidence: float = Query(default = 0.95, ge = 0.5, le = 0.99)
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
+    days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast"),
+    confidence: float = Query(default = 0.95, ge = 0.5, le = 0.99, description = "Confidence level for the interval (e.g. 0.95 for 95%)")
 ):
     forecast_ci = get_forecast_with_confidence(state_code.upper(), days, confidence)
     if not forecast_ci or "forecast_with_confidence" not in forecast_ci:
-        raise HTTPException(status_code = 404, detail = f"Previsão não disponível para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"Forecast not available for {state_code}")
     return forecast_ci
 
-
 @router.get(
-    "/cities/{state_code}", 
+    "/cities/{state_code}",
     response_model = ForecastResponseByCity,
-    summary = "Previsão multi-step para todas as cidades de um estado"
+    summary = "Multi-step forecast for all cities in a state"
 )
 def forecast_all_cities(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
-    days: int = Query(default = 7, ge = 1, le = 30)
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
+    days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     forecast = get_forecast_for_state(state_code.upper(), days)
     if not forecast or not forecast.get("forecasts"):
-        raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {state_code}")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"No forecast found for {state_code}")
     return forecast
 
-
 @router.get(
-    "/city/{state_code}/{city_name}", 
-    summary = "Previsão multi-step para uma cidade específica de um estado"
+    "/city/{state_code}/{city_name}",
+    response_model = ForecastCityResponse,
+    summary = "Multi-step forecast for a specific city in a state"
 )
 def forecast_specific_city(
-    state_code: str = Path(min_length = 2, max_length = 2, example = "CE"),
-    city_name: str = Path(min_length = 1, example = "Fortaleza"),
-    days: int = Query(default = 7, ge = 1, le = 30)
+    state_code: str = Path(min_length = 2, max_length = 2, examples={"default": {"value": "CE"}}),
+    city_name: str = Path(min_length = 1, examples={"default": {"value": "Fortaleza"}}),
+    days: int = Query(default = 7, ge = 1, le = 30, description = "Number of days to forecast")
 ):
     normalized_city_name = unidecode(city_name)
     forecast = get_forecast_for_city(state_code.upper(), normalized_city_name.lower(), days)
     if not forecast or "forecast" not in forecast:
-        raise HTTPException(status_code = 404, detail = f"Nenhuma previsão encontrada para {city_name} ({state_code})")
+        raise HTTPException(status_code = status.HTTP_404_NOT_FOUND, detail = f"No forecast found for {city_name} ({state_code})")
     return forecast

@@ -1,4 +1,5 @@
 services:
+
   db:
     image: postgres:15-alpine
     container_name: covid_db_container
@@ -11,14 +12,18 @@ services:
       - ./postgres-init:/docker-entrypoint-initdb.d
     ports:
       - "5430:5432"
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d covid_db"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+
   mlflow:
-    build: ./mlflow
+    build:
+      context: .
+      dockerfile: docker/mlflow/Dockerfile
     container_name: mlflow_tracking_server
     env_file:
       - .env
@@ -37,31 +42,56 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/fastapi/Dockerfile
     container_name: fastapi_api_server
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     volumes:
       - .:/app
-      - mlflow_artifacts:/mlflow/artifacts:ro  
+      - mlflow_artifacts:/mlflow/artifacts:ro
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      PYTHONPATH: /app
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
       MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
         condition: service_healthy
       mlflow:
-        condition: service_started
+        condition: service_healthy
 
-  app_runner:
-    build: .
-    container_name: covid_app_runner
-    user: appuser
+
+  test:
+    build:
+      context: .
+      dockerfile: docker/fastapi/Dockerfile
+      target: test
+    environment:
+      PYTHONPATH: /app
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+    profiles:
+      - test
+
+
+  training:
+    build:
+      context: .
+      dockerfile: docker/training/Dockerfile
+    container_name: covid_training_runner
     volumes:
       - .:/app
       - mlflow_artifacts:/mlflow/artifacts
@@ -69,13 +99,56 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
       MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
         condition: service_healthy
       mlflow:
-        condition: service_started
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+
+  notebook:
+    container_name: covid_notebook
+    build:
+      context: .
+      dockerfile: docker/notebook/Dockerfile
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+      - mlflow_artifacts:/mlflow/artifacts
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+      PYTHONPATH: /app
+    depends_on:
+      - mlflow
+    command: >
+      jupyter lab
+      --ip=0.0.0.0
+      --port=8888
+      --no-browser
+      --ServerApp.token=''
+
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard/Dockerfile
+    container_name: covid_dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE_URL: http://api:8000
+    depends_on:
+      - api
 
 volumes:
   postgres_data:
