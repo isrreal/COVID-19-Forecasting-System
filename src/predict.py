@@ -73,7 +73,7 @@ def predict_next_day(run_id: str, state: str = STATE) -> float | None:
     input_tensor = torch.from_numpy(data_scaled).float().unsqueeze(0)
 
     print("Running prediction...")
-    with torch.no_grad():
+    with torch.inference_mode():
         prediction_scaled = model(input_tensor).cpu().numpy()
 
     predicted_cases = float(

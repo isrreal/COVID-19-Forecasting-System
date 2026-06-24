@@ -292,7 +292,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 def perform_validation(model, criterion, device, scaler, data_dict):
     """Runs the validation step and computes RMSE, MAE, MAPE, and R² metrics."""
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         X_train_tensor = data_dict["X_train_tensor"].to(device)
         y_train_tensor = data_dict["y_train_tensor"].to(device)
         X_val_tensor = data_dict["X_val_tensor"].to(device)
@@ -331,7 +331,7 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
     y_val_true_final = data_dict["original_val_y"]
 
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         final_train_pred = model(X_train_tensor).cpu().numpy().reshape(-1, 1)
         final_val_pred = model(X_val_tensor).cpu().numpy().reshape(-1, 1)
 
