@@ -1,4 +1,4 @@
-# COVID-19 Forecasting API for Brazilian States
+# Dengue Forecasting API for Brazilian States
 
 <div align="center">
 
@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.38+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
 
-*A complete MLOps system for forecasting COVID-19 cases in Brazilian states — from raw data to a REST API and interactive dashboard.*
+*A complete MLOps system for forecasting dengue cases in Brazilian states — from raw SINAN notifications to a REST API and interactive dashboard.*
 
 [Features](#-key-features) • [Architecture](#-system-architecture) • [Quick Start](#-quick-start) • [API Endpoints](#-api-endpoints) • [Tech Stack](#-technology-stack)
 
@@ -19,7 +19,7 @@
 
 ## 📋 Overview
 
-This project provides **daily forecasts** of new confirmed COVID-19 cases for any Brazilian state. It uses public data from [Brasil.IO](https://brasil.io/dataset/covid19/caso_full/) and trains deep learning time-series models with PyTorch.
+This project provides **daily forecasts** of dengue notifications for any Brazilian state. It ingests raw case-level data from [SINAN](https://pysus.readthedocs.io/) via **pySUS** — one row per notification — and aggregates it into daily time series to train deep learning models with PyTorch.
 
 Two neural architectures are implemented and compared:
 
@@ -32,14 +32,14 @@ The system is built on a solid **MLOps foundation**: MLflow for experiment track
 
 ## ✨ Key Features
 
-- **ETL Pipeline** — downloads, cleans, and loads COVID-19 data from Brasil.IO into PostgreSQL
+- **ETL Pipeline** — downloads SINAN dengue data via pySUS, cleans, and loads into PostgreSQL
 - **Grid Search Training** — systematically compares LSTM and PLE across hyperparameter combinations
 - **MLflow Tracking** — logs every run's parameters, metrics, and artifacts; auto-selects the best model by validation RMSE
 - **REST API** — FastAPI with full Pydantic schemas, response validation, and Swagger documentation
 - **Confidence Intervals** — multi-step forecasts with configurable confidence bands
-- **City-level Forecasts** — per-city and aggregated state forecasts
-- **Statistical Endpoints** — chi-square tests, confidence intervals, mortality rankings
-- **Streamlit Dashboard** — interactive visualization of forecasts and city rankings
+- **Municipality-level Forecasts** — per-municipality and aggregated state forecasts (IBGE codes)
+- **Statistical Endpoints** — chi-square tests, confidence intervals, mortality rankings by municipality
+- **Streamlit Dashboard** — interactive visualization of forecasts and municipality rankings
 - **Automated Tests** — pytest suite covering all API endpoints
 
 ---
@@ -49,7 +49,7 @@ The system is built on a solid **MLOps foundation**: MLflow for experiment track
 ```mermaid
 flowchart TD
     subgraph "Offline Phase"
-        A[Brasil.IO] --> B(ETL Pipeline)
+        A[SINAN / pySUS] --> B(ETL Pipeline)
         B --> C[(PostgreSQL)]
         C --> D[Training Script]
         D --> E[MLflow Server]
@@ -82,7 +82,7 @@ Input Sequence (seq_length × 1)
          ↓
     Dense Layer (1 output)
          ↓
-    Prediction (next day cases)
+    Prediction (next day notifications)
 ```
 
 ### PLE (Progressive Layered Extraction)
@@ -104,7 +104,7 @@ Input Sequence (seq_length × 1)
          ↓  (repeated N layers)
     Dense Layer (1 output)
          ↓
-    Prediction (next day cases)
+    Prediction (next day notifications)
 ```
 
 PLE captures diverse temporal patterns through expert specialization and adapts dynamically via gating — particularly effective on non-stationary epidemic curves.
@@ -119,16 +119,15 @@ flowchart TD
     B -->|Yes| Z[Skip ETL]
     B -->|No| C[Extract]
     C --> D{Local cache?}
-    D -->|Yes| E[Read CSV]
-    D -->|No| F[Download from Brasil.IO]
-    F --> G[Decompress gzip] --> H[Cache locally] --> E
+    D -->|Yes| E[Read Parquet]
+    D -->|No| F[Download via pySUS / SINAN]
+    F --> G[Cache locally] --> E
     E --> I[Transform]
-    I --> J[Filter state-level records]
-    J --> K[Date interpolation]
-    K --> L[Population imputation ffill/bfill]
-    L --> M[KNN imputation for complex features]
-    M --> N[Load into PostgreSQL]
-    N --> Z
+    I --> J[Filter & rename SINAN columns]
+    J --> K[Map state abbreviation to IBGE code]
+    K --> L[Drop rows with missing key fields]
+    L --> M[Load into PostgreSQL]
+    M --> Z
 ```
 
 ---
@@ -142,6 +141,7 @@ flowchart TD
 | **ML / Data** | PyTorch, Scikit-learn, Pandas, NumPy, SciPy |
 | **MLOps** | MLflow |
 | **Database** | PostgreSQL, SQLAlchemy |
+| **Data Source** | pySUS (SINAN dengue notifications) |
 | **Infrastructure** | Docker, Docker Compose |
 | **Testing** | pytest, pytest-mock, httpx |
 
@@ -152,11 +152,11 @@ flowchart TD
 ```
 .
 ├── dashboard/                   # Streamlit dashboard
-│   ├── Home.py                  # Summary stats and top cities
+│   ├── Home.py                  # Summary stats and top municipalities
 │   ├── api_client.py            # HTTP client for the API
 │   └── pages/
 │       ├── 1_Forecast.py        # State forecast with confidence interval
-│       └── 2_Cities.py          # City mortality rankings
+│       └── 2_Cities.py          # Municipality mortality rankings
 ├── docker/                      # Dockerfiles per service
 │   ├── dashboard/
 │   ├── fastapi/
@@ -200,7 +200,7 @@ flowchart TD
 
 ```bash
 git clone <YOUR_REPOSITORY_URL>
-cd <YOUR_PROJECT_NAME>
+cd Dengue-Forecasting-System
 ```
 
 Create a `.env` file:
@@ -208,7 +208,7 @@ Create a `.env` file:
 ```bash
 POSTGRES_USER=appuser
 POSTGRES_PASSWORD=password
-POSTGRES_DB=covid_db
+POSTGRES_DB=dengue_db
 MLFLOW_TRACKING_URI=http://mlflow:5000
 GIT_PYTHON_REFRESH=quiet
 MPLCONFIGDIR=/tmp/matplotlib_cache
@@ -252,8 +252,8 @@ docker compose run training python main_workflow.py --states CE SP RJ MG --paral
 |--------|----------|-------------|
 | `GET` | `/api/v1/forecast/state/{state_code}` | Multi-step forecast for the aggregated state |
 | `GET` | `/api/v1/forecast/state/{state_code}/confidence` | Forecast with confidence interval |
-| `GET` | `/api/v1/forecast/cities/{state_code}` | Forecast for all cities in a state |
-| `GET` | `/api/v1/forecast/city/{state_code}/{city_name}` | Forecast for a specific city |
+| `GET` | `/api/v1/forecast/municipalities/{state_code}` | Forecast for all municipalities in a state |
+| `GET` | `/api/v1/forecast/municipality/{state_code}/{municipality_code}` | Forecast for a specific municipality |
 
 **Query parameters:** `days` (1–30, default 7), `confidence` (0.5–0.99, default 0.95)
 
@@ -268,8 +268,8 @@ curl "http://localhost:8000/api/v1/forecast/state/CE?days=7"
   "state": "CE",
   "model_run_id": "8830cfa7ba604d0485276e9b29f29530",
   "forecast": [
-    {"date": "2022-03-28", "predicted_value": 1000.31},
-    {"date": "2022-03-29", "predicted_value": 1001.18}
+    {"date": "2024-03-28", "predicted_value": 1200.31},
+    {"date": "2024-03-29", "predicted_value": 1185.18}
   ]
 }
 ```
@@ -284,7 +284,7 @@ curl "http://localhost:8000/api/v1/forecast/state/CE/confidence?days=7&confidenc
   "model_run_id": "8830cfa7ba604d0485276e9b29f29530",
   "confidence_level": 0.95,
   "forecast_with_confidence": [
-    {"date": "2022-03-28", "predicted_mean": 1000.31, "lower_bound": 950.29, "upper_bound": 1050.33}
+    {"date": "2024-03-28", "predicted_mean": 1200.31, "lower_bound": 1140.29, "upper_bound": 1260.33}
   ]
 }
 ```
@@ -293,14 +293,14 @@ curl "http://localhost:8000/api/v1/forecast/state/CE/confidence?days=7&confidenc
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/v1/stats/summary` | Aggregated totals and averages |
-| `GET` | `/api/v1/stats/city/{city_name}/{state}` | Stats for a specific city |
-| `GET` | `/api/v1/stats/top-cities` | Cities with most confirmed cases |
-| `GET` | `/api/v1/stats/most-deadly-cities` | Cities ranked by mortality rate |
-| `GET` | `/api/v1/stats/least-affected-cities` | Cities with lowest mortality rate |
+| `GET` | `/api/v1/stats/summary` | Aggregated totals and rates |
+| `GET` | `/api/v1/stats/municipality/{municipality_code}` | Stats for a specific municipality (IBGE code) |
+| `GET` | `/api/v1/stats/top-municipalities` | Municipalities with most notifications |
+| `GET` | `/api/v1/stats/most-deadly-municipalities` | Municipalities ranked by mortality rate |
+| `GET` | `/api/v1/stats/least-affected-municipalities` | Municipalities with lowest mortality rate |
 | `GET` | `/api/v1/stats/chi-square/state-deaths` | Chi-square test: state vs death occurrence |
-| `GET` | `/api/v1/stats/confidence/cases` | Confidence interval for daily new cases |
-| `GET` | `/api/v1/stats/confidence/deaths` | Confidence interval for daily new deaths |
+| `GET` | `/api/v1/stats/confidence/daily-cases` | Confidence interval for daily notifications |
+| `GET` | `/api/v1/stats/confidence/daily-deaths` | Confidence interval for daily deaths |
 | `GET` | `/api/v1/stats/plot/histogram` | Histogram image for a selected metric |
 
 ---
@@ -337,10 +337,9 @@ Tests cover all forecast and stats endpoints — success paths, 404s, 422 valida
 
 ## 🔮 Roadmap
 
-- **Multi-task PLE** — add a second prediction head for `new_deaths`, enabling true multi-task learning and justifying PLE's architecture over LSTM
+- **Multi-task PLE** — add a second prediction head for deaths, enabling true multi-task learning
 - **GitHub Actions CI/CD** — run tests automatically on every PR
 - **Redis caching** — cache model predictions to avoid reloading from MLflow on every request
-- **Pre-commit hooks** — `ruff`, `black`, `mypy` for automated code quality
 - **All 27 states** — currently trained on CE only; expand to full coverage
 
 ---
@@ -353,13 +352,13 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 👤 Author
 
-**Israel Souza** — [GitHub](https://github.com/leggen-assis)
+**Israel Souza** — [GitHub](https://github.com/isrreal)
 
 ---
 
 ## 🙏 Acknowledgments
 
-- Data provided by [Brasil.IO](https://brasil.io/)
+- Data provided by [SINAN](https://portalsinan.saude.gov.br/) via [pySUS](https://pysus.readthedocs.io/)
 - [FastAPI](https://fastapi.tiangolo.com/) for the API framework
 - [MLflow](https://mlflow.org/) for experiment tracking
 
@@ -367,6 +366,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**[⬆ back to top](#covid-19-forecasting-api-for-brazilian-states)**
+**[⬆ back to top](#dengue-forecasting-api-for-brazilian-states)**
 
 </div>
