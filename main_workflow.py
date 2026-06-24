@@ -14,46 +14,38 @@ logging.basicConfig(
 
 
 def main(args):
-    """
-    Função principal que orquestra o pipeline de ETL e treinamento.
-    """
+    """Orchestrates the ETL and training pipeline."""
     start_time = time.time()
-    logging.info("Iniciando o workflow de Machine Learning.")
+    logging.info("Starting dengue forecasting ML workflow.")
 
     if not args.skip_etl:
-        logging.info("Iniciando a Etapa 1: Pipeline de ETL de dados.")
+        logging.info("Step 1: Running ETL pipeline.")
         try:
             data_processing.main_etl_pipeline()
-            logging.info("Etapa 1 concluída com sucesso.")
+            logging.info("Step 1 completed successfully.")
         except Exception as e:
-            logging.error(f"Falha na Etapa 1 (ETL): {e}")
+            logging.error(f"Step 1 (ETL) failed: {e}")
             return
 
     states_to_train = args.states
     if not states_to_train:
-        logging.warning(
-            "Nenhum estado especificado para treinamento. Finalizando workflow."
-        )
+        logging.warning("No states specified for training. Exiting workflow.")
         return
 
-    logging.info(
-        f"Iniciando a Etapa 2: Treinamento para os estados: {', '.join(states_to_train)}"
-    )
+    logging.info(f"Step 2: Training for states: {', '.join(states_to_train)}")
 
     if args.parallel and len(states_to_train) > 1:
-        logging.info(
-            f"Executando treinamento em paralelo para {len(states_to_train)} estados."
-        )
+        logging.info(f"Running parallel training for {len(states_to_train)} states.")
         with ProcessPoolExecutor() as executor:
             executor.map(train.run_experiments, states_to_train)
     else:
-        logging.info("Executando treinamento em modo sequencial.")
+        logging.info("Running sequential training.")
         for state_code in states_to_train:
             train.run_experiments(state=state_code)
 
-    logging.info("Etapa 2 concluída com sucesso.")
+    logging.info("Step 2 completed successfully.")
     end_time = time.time()
-    logging.info(f"Workflow concluído em {end_time - start_time:.2f} segundos.")
+    logging.info(f"Workflow completed in {end_time - start_time:.2f} seconds.")
 
 
 if __name__ == "__main__":
@@ -64,17 +56,17 @@ if __name__ == "__main__":
         "--states",
         nargs="+",
         required=True,
-        help="Lista de siglas dos estados para treinar (ex: CE SP RJ).",
+        help="State abbreviations to train (e.g. CE SP RJ).",
     )
     parser.add_argument(
         "--skip-etl",
         action="store_true",
-        help="Pula a etapa de ETL se os dados já estiverem atualizados.",
+        help="Skip the ETL step if data is already up to date.",
     )
     parser.add_argument(
         "--parallel",
         action="store_true",
-        help="Executa o treinamento para múltiplos estados em paralelo.",
+        help="Train multiple states in parallel using separate processes.",
     )
 
     args = parser.parse_args()
