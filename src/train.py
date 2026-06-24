@@ -11,10 +11,40 @@ from sklearn.model_selection import ParameterGrid, train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
 import matplotlib.pyplot as plt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from database import sync_engine
 from src.models.neural_networks import DenguePredictorLSTM, DenguePredictorPLE
-from src.models.casos_covid import CasoCovid
+from src.models.caso_dengue import CasoDengue
+
+_STATE_IBGE_CODE: dict[str, int] = {
+    "RO": 11,
+    "AC": 12,
+    "AM": 13,
+    "RR": 14,
+    "PA": 15,
+    "AP": 16,
+    "TO": 17,
+    "MA": 21,
+    "PI": 22,
+    "CE": 23,
+    "RN": 24,
+    "PB": 25,
+    "PE": 26,
+    "AL": 27,
+    "SE": 28,
+    "BA": 29,
+    "MG": 31,
+    "ES": 32,
+    "RJ": 33,
+    "SP": 35,
+    "PR": 41,
+    "SC": 42,
+    "RS": 43,
+    "MS": 50,
+    "MT": 51,
+    "GO": 52,
+    "DF": 53,
+}
 
 # =============================================================================
 # 1. FUNÇÕES DE CONFIGURAÇÃO E UTILITÁRIOS
@@ -24,13 +54,13 @@ from src.models.casos_covid import CasoCovid
 def experiments_settings(state: str):
     """Define as configurações do experimento para AMBOS os modelos."""
     experiment_description = (
-        f"Comparação de modelos (LSTM vs PLE) para forecasting de COVID-19 em {state}."
+        f"Comparação de modelos (LSTM vs PLE) para forecasting de dengue em {state}."
     )
     experiment_tags = {
-        "project_name": "covid-19-forecasting-comparison",
+        "project_name": "dengue-forecasting-comparison",
         "state": state,
         "team": "leggen-assis-ml",
-        "project_quarter": "Q4-2025",
+        "project_quarter": "Q2-2026",
         "mlflow.note.content": experiment_description,
     }
 
@@ -99,10 +129,23 @@ def fetch_and_clean_data(state: str):
     """
     Busca os dados do banco de dados e aplica a limpeza inicial.
     """
-    print(f"Conectando ao banco de dados para buscar dados de {state}...")
+    ibge_code = _STATE_IBGE_CODE.get(state.upper())
+    if ibge_code is None:
+        print(f"Sigla de estado desconhecida: {state}. Pulando.")
+        return None
+
+    print(
+        f"Conectando ao banco de dados para buscar dados de {state} (IBGE: {ibge_code})..."
+    )
     with sync_engine.connect() as conn:
-        query = select(CasoCovid.datetime, CasoCovid.new_confirmed).where(
-            CasoCovid.state == state
+        query = (
+            select(
+                CasoDengue.notification_date,
+                func.count().label("daily_cases"),
+            )
+            .where(CasoDengue.state_ibge_code == ibge_code)
+            .group_by(CasoDengue.notification_date)
+            .order_by(CasoDengue.notification_date)
         )
         result = conn.execute(query)
         df = pd.DataFrame(result.fetchall(), columns=result.keys())
@@ -111,16 +154,14 @@ def fetch_and_clean_data(state: str):
         print(f"Nenhum dado encontrado para o estado {state}. Pulando.")
         return None
 
-    df = df.sort_values("datetime").rename(columns={"datetime": "date"})
+    df = df.rename(columns={"notification_date": "date"})
 
     print(f"Dados antes da limpeza: {len(df)} registros")
-    df = df[df["new_confirmed"] >= 0]
-    print(f"Após remover negativos: {len(df)} registros")
 
-    q99 = df["new_confirmed"].quantile(0.99)
+    q99 = df["daily_cases"].quantile(0.99)
     print(f"Percentis - Q99: {q99:.2f}")
 
-    df = df[df["new_confirmed"] <= q99 * 3]
+    df = df[df["daily_cases"] <= q99 * 3]
     print(f"Após remover outliers extremos: {len(df)} registros")
 
     return df
@@ -130,7 +171,7 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
     """
     Aplica scaling, cria sequências e executa a lógica de split (temporal/estratificado).
     """
-    time_series_raw = df["new_confirmed"].values.astype(float)
+    time_series_raw = df["daily_cases"].values.astype(float)
     scaler = MinMaxScaler(feature_range=(0, 1))
     time_series_scaled = scaler.fit_transform(time_series_raw.reshape(-1, 1))
 
@@ -470,10 +511,10 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
                 "model_type": model_type,
                 "Optimizer": "Adam",
                 "run_purpose": "Grid Search Comparison",
-                "target_variable": "new_confirmed",
+                "target_variable": "daily_cases",
                 "feature_set": "v_univariate",
                 "developer": "leggen-assis",
-                "data_source_table": "casos_covid",
+                "data_source_table": "casos_dengue",
                 "data_source_filter": f"state='{state}'",
             }
         )
@@ -576,9 +617,9 @@ def run_experiments(state: str):
         return
 
     mlflow_dataset = mlflow.data.from_pandas(
-        df, name=f"casos_covid_{state.lower()}_train"
+        df, name=f"casos_dengue_{state.lower()}_train"
     )
-    experiment_name = f"Covid Forecasting Comparison - {state}"
+    experiment_name = f"Dengue Forecasting Comparison - {state}"
     mlflow.set_experiment(experiment_name)
     mlflow.set_experiment_tags(settings["tags"])
 
