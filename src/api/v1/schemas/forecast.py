@@ -19,13 +19,11 @@ class ForecastItem(BaseModel):
 
     Attributes:
         date: Forecasted date
-        predicted_value: Predicted number of new confirmed cases
+        predicted_value: Predicted daily dengue case count
     """
 
     date: Date = Field(..., description="Forecasted date")
-    predicted_value: float = Field(
-        ..., description="Predicted number of new confirmed cases"
-    )
+    predicted_value: float = Field(..., description="Predicted daily dengue case count")
 
 
 class ForecastResponse(BaseModel):
@@ -46,13 +44,13 @@ class ForecastResponse(BaseModel):
     )
 
 
-class ForecastResponseByCity(BaseModel):
-    """Multi-step forecast broken down by city within a state.
+class ForecastResponseByMunicipality(BaseModel):
+    """Multi-step forecast broken down by municipality within a state.
 
     Attributes:
         state: State code (e.g. CE, SP)
         model_run_id: MLflow run ID of the model used for inference
-        forecasts: Mapping of city name to its ordered list of forecasted values
+        forecasts: Mapping of municipality IBGE code to its ordered list of forecasted values
     """
 
     state: str = Field(..., description="State code (e.g. CE, SP)")
@@ -60,22 +58,23 @@ class ForecastResponseByCity(BaseModel):
         ..., description="MLflow run ID of the model used for inference"
     )
     forecasts: dict[str, list[ForecastItem]] = Field(
-        ..., description="Mapping of city name to its ordered list of forecasted values"
+        ...,
+        description="Mapping of municipality IBGE code to its ordered list of forecasted values",
     )
 
 
-class ForecastCityResponse(BaseModel):
-    """Multi-step forecast for a specific city within a state.
+class ForecastMunicipalityResponse(BaseModel):
+    """Multi-step forecast for a specific municipality within a state.
 
     Attributes:
         state: State code (e.g. CE, SP)
-        city: City name
+        municipality_code: Municipality IBGE code
         model_run_id: MLflow run ID of the model used for inference
         forecast: Ordered list of daily forecasted values
     """
 
     state: str = Field(..., description="State code (e.g. CE, SP)")
-    city: str = Field(..., description="City name")
+    municipality_code: int = Field(..., description="Municipality IBGE code")
     model_run_id: str = Field(
         ..., description="MLflow run ID of the model used for inference"
     )

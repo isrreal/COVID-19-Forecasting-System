@@ -1,17 +1,16 @@
 from fastapi import APIRouter, HTTPException, Query, Path, status
-from unidecode import unidecode
 
 from src.api.v1.schemas.forecast import (
     ForecastResponse,
-    ForecastResponseByCity,
-    ForecastCityResponse,
+    ForecastResponseByMunicipality,
+    ForecastMunicipalityResponse,
     ForecastConfidenceResponse,
 )
 from src.api.v1.services.forecast_service import (
     get_forecast_for_state,
     get_forecast_for_entire_state,
     get_forecast_with_confidence,
-    get_forecast_for_city,
+    get_forecast_for_municipality,
 )
 
 router: APIRouter = APIRouter()
@@ -64,11 +63,11 @@ def forecast_state_with_confidence(
 
 
 @router.get(
-    "/cities/{state_code}",
-    response_model=ForecastResponseByCity,
-    summary="Multi-step forecast for all cities in a state",
+    "/municipalities/{state_code}",
+    response_model=ForecastResponseByMunicipality,
+    summary="Multi-step forecast for all municipalities in a state",
 )
-def forecast_all_cities(
+def forecast_all_municipalities(
     state_code: str = Path(
         min_length=2, max_length=2, examples={"default": {"value": "CE"}}
     ),
@@ -84,24 +83,23 @@ def forecast_all_cities(
 
 
 @router.get(
-    "/city/{state_code}/{city_name}",
-    response_model=ForecastCityResponse,
-    summary="Multi-step forecast for a specific city in a state",
+    "/municipality/{state_code}/{municipality_code}",
+    response_model=ForecastMunicipalityResponse,
+    summary="Multi-step forecast for a specific municipality in a state",
 )
-def forecast_specific_city(
+def forecast_specific_municipality(
     state_code: str = Path(
         min_length=2, max_length=2, examples={"default": {"value": "CE"}}
     ),
-    city_name: str = Path(min_length=1, examples={"default": {"value": "Fortaleza"}}),
+    municipality_code: int = Path(description="Municipality IBGE code"),
     days: int = Query(default=7, ge=1, le=30, description="Number of days to forecast"),
 ):
-    normalized_city_name = unidecode(city_name)
-    forecast = get_forecast_for_city(
-        state_code.upper(), normalized_city_name.lower(), days
+    forecast = get_forecast_for_municipality(
+        state_code.upper(), municipality_code, days
     )
     if not forecast or "forecast" not in forecast:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No forecast found for {city_name} ({state_code})",
+            detail=f"No forecast found for municipality {municipality_code} ({state_code})",
         )
     return forecast
