@@ -1,6 +1,5 @@
 import io
 import logging
-from typing import Dict, Union
 
 import numpy as np
 import pandas as pd
@@ -26,7 +25,7 @@ _HOSPITALIZED_YES = 1
 # ==========================================================
 
 
-def get_summary_stats(session: Session) -> Dict[str, Union[int, float]]:
+def get_summary_stats(session: Session) -> dict[str, int | float]:
     total = session.execute(select(func.count(CasoDengue.id))).scalar() or 0
     deaths = (
         session.execute(
@@ -60,7 +59,7 @@ def get_summary_stats(session: Session) -> Dict[str, Union[int, float]]:
 
 def get_municipality_stats(
     municipality_code: int, session: Session
-) -> Dict[str, Union[int, float]] | None:
+) -> dict[str, int | float] | None:
     result = session.execute(
         select(
             func.count(CasoDengue.id).label("total_notifications"),
@@ -197,7 +196,7 @@ def get_least_affected_municipalities(limit: int, session: Session):
 # ==========================================================
 
 
-def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dict]]:
+def chi_square_state_deaths(session: Session) -> dict[str, str | float | dict]:
     """Performs a chi-square test for association between state and death occurrence."""
     try:
         result = session.execute(
