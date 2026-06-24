@@ -160,7 +160,7 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict | None:
 
     sequence_np = np.array(sequence, dtype=np.float32).reshape(-1, 1)
     data_scaled = scaler.transform(sequence_np)
-    input_tensor = torch.from_numpy(data_scaled).float().view(1, seq_length, 1)
+    input_tensor = torch.from_numpy(data_scaled).float().unsqueeze(0)
 
     with torch.no_grad():
         prediction_scaled = model(input_tensor).cpu().numpy()
@@ -222,7 +222,7 @@ def _generate_autoregressive_forecast(
     for i in range(days):
         with torch.no_grad():
             input_tensor = (
-                torch.from_numpy(current_sequence_scaled).float().view(1, seq_length, 1)
+                torch.from_numpy(current_sequence_scaled).float().unsqueeze(0)
             )
             pred_scaled = model(input_tensor).cpu().numpy()
 
