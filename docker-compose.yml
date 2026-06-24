@@ -2,11 +2,11 @@ services:
 
   db:
     image: postgres:15-alpine
-    container_name: covid_db_container
+    container_name: dengue_db_container
     env_file:
       - .env
     environment:
-      POSTGRES_DB: covid_db
+      POSTGRES_DB: dengue_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d
@@ -14,7 +14,7 @@ services:
       - "5430:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d covid_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d dengue_db"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -65,7 +65,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dengue_db"
       MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
@@ -82,7 +82,7 @@ services:
     environment:
       PYTHONPATH: /app
       MLFLOW_TRACKING_URI: http://mlflow:5000
-      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dengue_db"
     profiles:
       - test
 
@@ -91,7 +91,7 @@ services:
     build:
       context: .
       dockerfile: docker/training/Dockerfile
-    container_name: covid_training_runner
+    container_name: dengue_training_runner
     volumes:
       - .:/app
       - mlflow_artifacts:/mlflow/artifacts
@@ -99,7 +99,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/covid_db"
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dengue_db"
       MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       db:
@@ -116,7 +116,7 @@ services:
 
 
   notebook:
-    container_name: covid_notebook
+    container_name: dengue_notebook
     build:
       context: .
       dockerfile: docker/notebook/Dockerfile
@@ -142,7 +142,7 @@ services:
     build:
       context: .
       dockerfile: docker/dashboard/Dockerfile
-    container_name: covid_dashboard
+    container_name: dengue_dashboard
     ports:
       - "8501:8501"
     environment:
