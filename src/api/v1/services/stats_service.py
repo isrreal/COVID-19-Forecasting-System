@@ -1,191 +1,208 @@
+import io
 import logging
 from typing import Dict, Union
-import io
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 from scipy import stats
 from scipy.stats import chi2_contingency
-import matplotlib.pyplot as plt
-from unidecode import unidecode
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from fastapi.responses import StreamingResponse
 
-from src.models.casos_covid import CasoCovid
+from src.models.caso_dengue import CasoDengue
 
 logger = logging.getLogger(__name__)
+
+_OUTCOME_DEATH = 2
+_HOSPITALIZED_YES = 1
 
 
 # ==========================================================
 # Summary Statistics
 # ==========================================================
-def get_summary_stats(session: Session) -> Dict[str, Union[int, float, str]]:
-    result = session.execute(
-        select(
-            func.count(CasoCovid.id).label("total_records"),
-            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed_per_day"),
-            func.avg(CasoCovid.new_deaths).label("avg_new_deaths_per_day"),
-        )
+
+
+def get_summary_stats(session: Session) -> Dict[str, Union[int, float]]:
+    total = session.execute(select(func.count(CasoDengue.id))).scalar() or 0
+    deaths = (
+        session.execute(
+            select(func.count(CasoDengue.id)).where(
+                CasoDengue.outcome == _OUTCOME_DEATH
+            )
+        ).scalar()
+        or 0
     )
-    row = result.mappings().one()
+    hospitalized = (
+        session.execute(
+            select(func.count(CasoDengue.id)).where(
+                CasoDengue.hospitalized == _HOSPITALIZED_YES
+            )
+        ).scalar()
+        or 0
+    )
+
     return {
-        "total_records": int(row["total_records"] or 0),
-        "total_confirmed": float(row["total_confirmed"] or 0),
-        "total_deaths": float(row["total_deaths"] or 0),
-        "avg_new_confirmed_per_day": float(row["avg_new_confirmed_per_day"] or 0),
-        "avg_new_deaths_per_day": float(row["avg_new_deaths_per_day"] or 0),
+        "total_notifications": int(total),
+        "total_deaths": int(deaths),
+        "hospitalization_rate": round(hospitalized / total, 4) if total else 0.0,
+        "mortality_rate": round(deaths / total, 4) if total else 0.0,
     }
 
 
 # ==========================================================
-# City Statistics
+# Municipality Statistics
 # ==========================================================
-def get_city_stats(
-    city_name: str, state: str, session: Session
-) -> Dict[str, Union[str, float]] | None:
-    normalized_city_name = unidecode(city_name).lower()
+
+
+def get_municipality_stats(
+    municipality_code: int, session: Session
+) -> Dict[str, Union[int, float]] | None:
     result = session.execute(
         select(
-            CasoCovid.city,
-            func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
-            func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-            func.avg(CasoCovid.new_confirmed).label("avg_new_confirmed"),
-            func.avg(CasoCovid.new_deaths).label("avg_new_deaths"),
-        )
-        .where(
-            CasoCovid.city == normalized_city_name,
-            CasoCovid.state == state,
-            CasoCovid.city.isnot(None),
-            CasoCovid.city != "N/A",
-        )
-        .group_by(CasoCovid.city)
+            func.count(CasoDengue.id).label("total_notifications"),
+            func.sum(case((CasoDengue.outcome == _OUTCOME_DEATH, 1), else_=0)).label(
+                "total_deaths"
+            ),
+            func.sum(
+                case((CasoDengue.hospitalized == _HOSPITALIZED_YES, 1), else_=0)
+            ).label("total_hospitalized"),
+        ).where(CasoDengue.municipality_ibge_code == municipality_code)
     )
     row = result.mappings().one_or_none()
-    if row is None:
+    if row is None or row["total_notifications"] == 0:
         return None
 
+    total = int(row["total_notifications"])
+    deaths = int(row["total_deaths"] or 0)
+    hospitalized = int(row["total_hospitalized"] or 0)
+
     return {
-        "city": row["city"],
-        "total_confirmed": float(row["total_confirmed"] or 0),
-        "total_deaths": float(row["total_deaths"] or 0),
-        "avg_new_confirmed": float(row["avg_new_confirmed"] or 0),
-        "avg_new_deaths": float(row["avg_new_deaths"] or 0),
+        "municipality_code": municipality_code,
+        "total_notifications": total,
+        "total_deaths": deaths,
+        "hospitalization_rate": round(hospitalized / total, 4),
+        "mortality_rate": round(deaths / total, 4),
     }
 
 
 # ==========================================================
-# Top / Most Deadly / Least Affected Cities
+# Top / Most Deadly / Least Affected Municipalities
 # ==========================================================
-def get_top_cities(limit: int, session: Session):
+
+
+def get_top_municipalities(limit: int, session: Session):
     try:
         result = session.execute(
             select(
-                CasoCovid.city,
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+                CasoDengue.municipality_ibge_code,
+                CasoDengue.state_ibge_code,
+                func.count(CasoDengue.id).label("total_notifications"),
             )
-            .where(CasoCovid.city.isnot(None), CasoCovid.city != "N/A")
-            .group_by(CasoCovid.city)
-            .order_by(func.sum(CasoCovid.last_available_confirmed).desc())
+            .group_by(CasoDengue.municipality_ibge_code, CasoDengue.state_ibge_code)
+            .order_by(func.count(CasoDengue.id).desc())
             .limit(limit)
         )
         rows = result.mappings().all()
         return [
-            {"city": r["city"], "total_confirmed": float(r["total_confirmed"] or 0)}
+            {
+                "municipality_code": r["municipality_ibge_code"],
+                "state_code": r["state_ibge_code"],
+                "total_notifications": int(r["total_notifications"]),
+            }
             for r in rows
         ]
     except SQLAlchemyError:
-        logger.exception("Error fetching top cities.")
-        return {"error": "Could not retrieve cities with the most confirmed cases."}
+        logger.exception("Error fetching top municipalities.")
+        return {
+            "error": "Could not retrieve municipalities with the most notifications."
+        }
 
 
-def get_most_deadly_cities(limit: int, session: Session):
+def get_most_deadly_municipalities(limit: int, session: Session):
     try:
-        mortality_rate = (
-            func.sum(CasoCovid.last_available_deaths)
-            / func.sum(CasoCovid.last_available_confirmed)
-        ).label("mortality_rate")
+        total_agg = func.count(CasoDengue.id)
+        deaths_agg = func.sum(case((CasoDengue.outcome == _OUTCOME_DEATH, 1), else_=0))
+        mortality_rate = (deaths_agg / total_agg).label("mortality_rate")
+
         result = session.execute(
             select(
-                CasoCovid.city,
-                CasoCovid.state,
+                CasoDengue.municipality_ibge_code,
+                CasoDengue.state_ibge_code,
                 mortality_rate,
-                func.sum(CasoCovid.last_available_deaths).label("total_deaths"),
-                func.sum(CasoCovid.last_available_confirmed).label("total_confirmed"),
+                deaths_agg.label("total_deaths"),
+                total_agg.label("total_notifications"),
             )
-            .where(CasoCovid.city.isnot(None), CasoCovid.city != "N/A")
-            .group_by(CasoCovid.city, CasoCovid.state)
-            .having(func.sum(CasoCovid.last_available_confirmed) > 0)
+            .group_by(CasoDengue.municipality_ibge_code, CasoDengue.state_ibge_code)
+            .having(total_agg > 0)
             .order_by(mortality_rate.desc())
             .limit(limit)
         )
         rows = result.mappings().all()
         return [
             {
-                "city": r["city"],
-                "state": r["state"],
+                "municipality_code": r["municipality_ibge_code"],
+                "state_code": r["state_ibge_code"],
                 "mortality_rate": float(r["mortality_rate"] or 0),
-                "total_deaths": float(r["total_deaths"] or 0),
-                "total_confirmed": float(r["total_confirmed"] or 0),
+                "total_deaths": int(r["total_deaths"] or 0),
+                "total_notifications": int(r["total_notifications"] or 0),
             }
             for r in rows
         ]
     except SQLAlchemyError:
-        logger.exception("Error fetching most deadly cities.")
+        logger.exception("Error fetching most deadly municipalities.")
         return {"error": "Could not retrieve data."}
 
 
-def get_least_affected_cities(limit: int, session: Session):
+def get_least_affected_municipalities(limit: int, session: Session):
     try:
-        total_confirmed_agg = func.sum(CasoCovid.last_available_confirmed)
-        total_deaths_agg = func.sum(CasoCovid.last_available_deaths)
-        mortality_rate = (total_deaths_agg / total_confirmed_agg).label(
-            "mortality_rate"
-        )
+        total_agg = func.count(CasoDengue.id)
+        deaths_agg = func.sum(case((CasoDengue.outcome == _OUTCOME_DEATH, 1), else_=0))
+        mortality_rate = (deaths_agg / total_agg).label("mortality_rate")
+
         result = session.execute(
             select(
-                CasoCovid.city,
-                CasoCovid.state,
+                CasoDengue.municipality_ibge_code,
+                CasoDengue.state_ibge_code,
                 mortality_rate,
-                total_deaths_agg.label("total_deaths"),
-                total_confirmed_agg.label("total_confirmed"),
+                deaths_agg.label("total_deaths"),
+                total_agg.label("total_notifications"),
             )
-            .where(CasoCovid.city.isnot(None), CasoCovid.city != "N/A")
-            .group_by(CasoCovid.city, CasoCovid.state)
-            .having(total_confirmed_agg > 0)
+            .group_by(CasoDengue.municipality_ibge_code, CasoDengue.state_ibge_code)
+            .having(total_agg > 0)
             .order_by(mortality_rate.asc())
             .limit(limit)
         )
         rows = result.mappings().all()
         return [
             {
-                "city": r["city"],
-                "state": r["state"],
+                "municipality_code": r["municipality_ibge_code"],
+                "state_code": r["state_ibge_code"],
                 "mortality_rate": float(r["mortality_rate"] or 0),
-                "total_deaths": float(r["total_deaths"] or 0),
-                "total_confirmed": float(r["total_confirmed"] or 0),
+                "total_deaths": int(r["total_deaths"] or 0),
+                "total_notifications": int(r["total_notifications"] or 0),
             }
             for r in rows
         ]
     except SQLAlchemyError:
-        logger.exception("Error fetching least affected cities.")
+        logger.exception("Error fetching least affected municipalities.")
         return {"error": "Could not retrieve data."}
 
 
 # ==========================================================
 # Chi-Square Test
 # ==========================================================
+
+
 def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dict]]:
     """Performs a chi-square test for association between state and death occurrence."""
     try:
         result = session.execute(
-            select(CasoCovid.state, CasoCovid.last_available_deaths).where(
-                CasoCovid.state.isnot(None)
+            select(CasoDengue.state_ibge_code, CasoDengue.outcome).where(
+                CasoDengue.state_ibge_code.isnot(None)
             )
         )
         rows = result.fetchall()
@@ -193,10 +210,10 @@ def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dic
         if not rows:
             return {"error": "No data available to perform the chi-square test."}
 
-        df = pd.DataFrame(rows, columns=["state", "deaths"])
-        df["death_occurred"] = (df["deaths"] > 0).astype(int)
+        df = pd.DataFrame(rows, columns=["state_ibge_code", "outcome"])
+        df["death_occurred"] = (df["outcome"] == _OUTCOME_DEATH).astype(int)
 
-        contingency = pd.crosstab(df["state"], df["death_occurred"])
+        contingency = pd.crosstab(df["state_ibge_code"], df["death_occurred"])
         chi2, p, dof, expected = chi2_contingency(contingency)
 
         significance_level = 0.05
@@ -234,64 +251,114 @@ def chi_square_state_deaths(session: Session) -> Dict[str, Union[str, float, Dic
 # ==========================================================
 # Confidence Intervals
 # ==========================================================
-def _get_confidence_interval(
-    session: Session,
-    metric_col: InstrumentedAttribute,
-    metric_name: str,
-    confidence=0.95,
-):
-    result = session.execute(
-        select(
-            func.avg(metric_col).label("mean"),
-            func.stddev(metric_col).label("stddev"),
-            func.count(metric_col).label("n"),
-        ).where(metric_col.isnot(None))
-    )
-    row = result.mappings().one_or_none()
-    if not row or row["n"] < 2:
-        raise ValueError(
-            f"Insufficient data to compute confidence interval for '{metric_name}'."
+
+
+def get_confidence_interval_daily_cases(
+    session: Session, confidence: float = 0.95
+) -> dict:
+    """Computes a confidence interval for the daily notification count."""
+    try:
+        subq = (
+            select(func.count(CasoDengue.id).label("daily_count"))
+            .group_by(CasoDengue.notification_date)
+            .subquery()
         )
+        result = session.execute(
+            select(
+                func.avg(subq.c.daily_count).label("mean"),
+                func.stddev(subq.c.daily_count).label("stddev"),
+                func.count(subq.c.daily_count).label("n"),
+            )
+        )
+        row = result.mappings().one_or_none()
+        if not row or row["n"] < 2:
+            raise ValueError("Insufficient data to compute confidence interval.")
 
-    mean = float(row["mean"])
-    stddev = float(row["stddev"])
-    n = int(row["n"])
-    sem = stddev / np.sqrt(n)
-    h = sem * stats.t.ppf((1 + confidence) / 2.0, n - 1)
+        mean = float(row["mean"])
+        stddev = float(row["stddev"])
+        n = int(row["n"])
+        sem = stddev / np.sqrt(n)
+        h = sem * stats.t.ppf((1 + confidence) / 2.0, n - 1)
 
-    return {
-        "metric": metric_name,
-        "mean": mean,
-        "lower": mean - h,
-        "upper": mean + h,
-        "n": n,
-    }
+        return {
+            "metric": "daily_notifications",
+            "mean": mean,
+            "lower": mean - h,
+            "upper": mean + h,
+            "n": n,
+        }
+
+    except SQLAlchemyError:
+        logger.exception(
+            "Database error computing confidence interval for daily cases."
+        )
+        return {"error": "Database error computing confidence interval."}
 
 
-def get_confidence_interval_cases(session: Session, confidence=0.95):
-    return _get_confidence_interval(
-        session, CasoCovid.new_confirmed, "new_confirmed", confidence
-    )
+def get_confidence_interval_daily_deaths(
+    session: Session, confidence: float = 0.95
+) -> dict:
+    """Computes a confidence interval for the daily death count."""
+    try:
+        subq = (
+            select(
+                func.sum(
+                    case((CasoDengue.outcome == _OUTCOME_DEATH, 1), else_=0)
+                ).label("daily_deaths")
+            )
+            .group_by(CasoDengue.notification_date)
+            .subquery()
+        )
+        result = session.execute(
+            select(
+                func.avg(subq.c.daily_deaths).label("mean"),
+                func.stddev(subq.c.daily_deaths).label("stddev"),
+                func.count(subq.c.daily_deaths).label("n"),
+            )
+        )
+        row = result.mappings().one_or_none()
+        if not row or row["n"] < 2:
+            raise ValueError("Insufficient data to compute confidence interval.")
+
+        mean = float(row["mean"])
+        stddev = float(row["stddev"])
+        n = int(row["n"])
+        sem = stddev / np.sqrt(n)
+        h = sem * stats.t.ppf((1 + confidence) / 2.0, n - 1)
+
+        return {
+            "metric": "daily_deaths",
+            "mean": mean,
+            "lower": mean - h,
+            "upper": mean + h,
+            "n": n,
+        }
+
+    except SQLAlchemyError:
+        logger.exception(
+            "Database error computing confidence interval for daily deaths."
+        )
+        return {"error": "Database error computing confidence interval."}
 
 
-def get_confidence_interval_deaths(session: Session, confidence=0.95):
-    return _get_confidence_interval(
-        session, CasoCovid.new_deaths, "new_deaths", confidence
-    )
+# ==========================================================
+# Histogram
+# ==========================================================
 
 
 def generate_histogram(metric: str, bin_width: int, max_value: int, session: Session):
-    """Generates a histogram for the selected metric and returns a PNG image."""
-
+    """Generates a histogram for the selected dengue metric and returns a PNG image."""
     metric_map = {
-        "new_confirmed": CasoCovid.new_confirmed,
-        "new_deaths": CasoCovid.new_deaths,
-        "last_available_confirmed": CasoCovid.last_available_confirmed,
-        "last_available_deaths": CasoCovid.last_available_deaths,
+        "age_encoded": CasoDengue.age_encoded,
+        "final_classification": CasoDengue.final_classification,
+        "serotype": CasoDengue.serotype,
+        "outcome": CasoDengue.outcome,
     }
 
     if metric not in metric_map:
-        return {"error": f"Invalid metric: {metric}"}
+        return {
+            "error": f"Invalid metric: '{metric}'. Valid options: {list(metric_map.keys())}"
+        }
 
     try:
         result = session.execute(
