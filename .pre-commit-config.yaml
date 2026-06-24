@@ -13,3 +13,4 @@ repos:
         args: [--ignore-missing-imports]
         additional_dependencies:
           - sqlalchemy>=2.0
+          - types-requests

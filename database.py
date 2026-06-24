@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session
 
-from src.models.casos_covid import ModelBase
+from src.models.caso_dengue import ModelBase
 
 load_dotenv()
 

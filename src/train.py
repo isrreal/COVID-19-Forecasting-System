@@ -11,26 +11,56 @@ from sklearn.model_selection import ParameterGrid, train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import joblib
 import matplotlib.pyplot as plt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from database import sync_engine
-from src.models.neural_networks import CovidPredictorLSTM, CovidPredictorPLE
-from src.models.casos_covid import CasoCovid
+from src.models.neural_networks import DenguePredictorLSTM, DenguePredictorPLE
+from src.models.caso_dengue import CasoDengue
+
+_STATE_IBGE_CODE: dict[str, int] = {
+    "RO": 11,
+    "AC": 12,
+    "AM": 13,
+    "RR": 14,
+    "PA": 15,
+    "AP": 16,
+    "TO": 17,
+    "MA": 21,
+    "PI": 22,
+    "CE": 23,
+    "RN": 24,
+    "PB": 25,
+    "PE": 26,
+    "AL": 27,
+    "SE": 28,
+    "BA": 29,
+    "MG": 31,
+    "ES": 32,
+    "RJ": 33,
+    "SP": 35,
+    "PR": 41,
+    "SC": 42,
+    "RS": 43,
+    "MS": 50,
+    "MT": 51,
+    "GO": 52,
+    "DF": 53,
+}
 
 # =============================================================================
-# 1. FUNÇÕES DE CONFIGURAÇÃO E UTILITÁRIOS
+# 1. CONFIGURATION AND UTILITIES
 # =============================================================================
 
 
 def experiments_settings(state: str):
-    """Define as configurações do experimento para AMBOS os modelos."""
+    """Defines experiment settings for both LSTM and PLE models."""
     experiment_description = (
-        f"Comparação de modelos (LSTM vs PLE) para forecasting de COVID-19 em {state}."
+        f"Model comparison (LSTM vs PLE) for dengue forecasting in {state}."
     )
     experiment_tags = {
-        "project_name": "covid-19-forecasting-comparison",
+        "project_name": "dengue-forecasting-comparison",
         "state": state,
         "team": "leggen-assis-ml",
-        "project_quarter": "Q4-2025",
+        "project_quarter": "Q2-2026",
         "mlflow.note.content": experiment_description,
     }
 
@@ -63,7 +93,7 @@ def experiments_settings(state: str):
 
 
 def create_sequences(data, seq_length):
-    """Cria sequências de dados para forecasting."""
+    """Creates sliding-window sequences for time series forecasting."""
     xs, ys = [], []
     for i in range(len(data) - seq_length):
         xs.append(data[i : (i + seq_length)])
@@ -72,9 +102,7 @@ def create_sequences(data, seq_length):
 
 
 def calculate_metrics(y_true, y_pred):
-    """
-    Calcula métricas de regressão, incluindo R2 (R-quadrado).
-    """
+    """Computes regression metrics: RMSE, MAE, MAPE, and R²."""
     y_true = np.nan_to_num(y_true, nan=0.0)
     y_pred = np.nan_to_num(y_pred, nan=0.0)
 
@@ -91,56 +119,61 @@ def calculate_metrics(y_true, y_pred):
 
 
 # =============================================================================
-# 2. FUNÇÕES DE PREPARAÇÃO DE DADOS
+# 2. DATA PREPARATION
 # =============================================================================
 
 
 def fetch_and_clean_data(state: str):
-    """
-    Busca os dados do banco de dados e aplica a limpeza inicial.
-    """
-    print(f"Conectando ao banco de dados para buscar dados de {state}...")
+    """Fetches daily case counts from the database and applies initial cleaning."""
+    ibge_code = _STATE_IBGE_CODE.get(state.upper())
+    if ibge_code is None:
+        print(f"Unknown state abbreviation: {state}. Skipping.")
+        return None
+
+    print(f"Connecting to database for state {state} (IBGE code: {ibge_code})...")
     with sync_engine.connect() as conn:
-        query = select(CasoCovid.datetime, CasoCovid.new_confirmed).where(
-            CasoCovid.state == state
+        query = (
+            select(
+                CasoDengue.notification_date,
+                func.count().label("daily_cases"),
+            )
+            .where(CasoDengue.state_ibge_code == ibge_code)
+            .group_by(CasoDengue.notification_date)
+            .order_by(CasoDengue.notification_date)
         )
         result = conn.execute(query)
         df = pd.DataFrame(result.fetchall(), columns=result.keys())
 
     if df.empty:
-        print(f"Nenhum dado encontrado para o estado {state}. Pulando.")
+        print(f"No data found for state {state}. Skipping.")
         return None
 
-    df = df.sort_values("datetime").rename(columns={"datetime": "date"})
+    df = df.rename(columns={"notification_date": "date"})
 
-    print(f"Dados antes da limpeza: {len(df)} registros")
-    df = df[df["new_confirmed"] >= 0]
-    print(f"Após remover negativos: {len(df)} registros")
+    print(f"Records before cleaning: {len(df)}")
 
-    q99 = df["new_confirmed"].quantile(0.99)
-    print(f"Percentis - Q99: {q99:.2f}")
+    q99 = df["daily_cases"].quantile(0.99)
+    print(f"Q99: {q99:.2f}")
 
-    df = df[df["new_confirmed"] <= q99 * 3]
-    print(f"Após remover outliers extremos: {len(df)} registros")
+    df = df[df["daily_cases"] <= q99 * 3]
+    print(f"Records after removing extreme outliers: {len(df)}")
 
     return df
 
 
 def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
-    """
-    Aplica scaling, cria sequências e executa a lógica de split (temporal/estratificado).
-    """
-    time_series_raw = df["new_confirmed"].values.astype(float)
+    """Scales data, creates sequences, and splits into train/validation sets."""
+    time_series_raw = df["daily_cases"].values.astype(float)
     scaler = MinMaxScaler(feature_range=(0, 1))
     time_series_scaled = scaler.fit_transform(time_series_raw.reshape(-1, 1))
 
     X, y = create_sequences(time_series_scaled, seq_length)
 
     if len(X) == 0:
-        print("Não foi possível criar sequências. Pulando.")
+        print("Could not create sequences. Skipping.")
         return None, None
 
-    print(f"\nTotal de sequências criadas: {len(X)}")
+    print(f"\nTotal sequences created: {len(X)}")
 
     train_size = int(len(X) * 0.8)
     original_y_full = time_series_raw[seq_length:]
@@ -151,9 +184,9 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
 
     if val_zero_ratio > 0.9:
         print(
-            f"\nSplit temporal resultaria em {val_zero_ratio * 100:.1f}% de zeros no validation!"
+            f"\nTemporal split would result in {val_zero_ratio * 100:.1f}% zeros in validation!"
         )
-        print("   Usando estratégia alternativa: split aleatório estratificado")
+        print("   Falling back to stratified random split.")
 
         y_bins = np.digitize(
             y.flatten(), bins=np.percentile(y.flatten(), [0, 25, 50, 75, 100])
@@ -165,27 +198,27 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
 
         original_train_y = original_y_full[idx_train]
         original_val_y = original_y_full[idx_val]
-        print("   Split estratificado aplicado com sucesso!")
+        print("   Stratified split applied successfully.")
     else:
-        print("Usando split temporal padrão (80/20).")
+        print("Using standard temporal split (80/20).")
         X_train, X_val = X[:train_size], X[train_size:]
         y_train, y_val = y[:train_size], y[train_size:]
         original_train_y = original_y_full[:train_size]
         original_val_y = original_y_full[train_size:]
 
-    print("\nDEBUG - Verificação de escalas (Val):")
+    print("\nDEBUG - Scale check (Val):")
     print(
-        f"  y_val escalado: min = {y_val.min():.6f}, max = {y_val.max():.6f}, mean = {y_val.mean():.6f}"
+        f"  y_val scaled: min={y_val.min():.6f}, max={y_val.max():.6f}, mean={y_val.mean():.6f}"
     )
     print(
-        f"  original_val_y: min = {original_val_y.min():.2f}, max = {original_val_y.max():.2f}, mean = {original_val_y.mean():.2f}"
+        f"  original_val_y: min={original_val_y.min():.2f}, max={original_val_y.max():.2f}, mean={original_val_y.mean():.2f}"
     )
 
     if original_val_y.max() < 1.0:
-        print("\nAVISO: Os dados de validação têm valores muito baixos!")
+        print("\nWARNING: Validation data has very low values!")
 
     if np.all(original_val_y == 0):
-        print("\nERRO CRÍTICO: Todos os valores de validação são zero! Pulando...")
+        print("\nCRITICAL ERROR: All validation values are zero! Skipping...")
         return None, None
 
     data_dict = {
@@ -198,35 +231,33 @@ def prepare_data_for_run(df: pd.DataFrame, seq_length: int):
     }
 
     print(
-        f"Shapes - X_train: {data_dict['X_train_tensor'].shape}, y_train: {data_dict['y_train_tensor'].shape}"
+        f"Shapes — X_train: {data_dict['X_train_tensor'].shape}, y_train: {data_dict['y_train_tensor'].shape}"
     )
     print(
-        f"Shapes - X_val: {data_dict['X_val_tensor'].shape}, y_val: {data_dict['y_val_tensor'].shape}"
+        f"Shapes — X_val: {data_dict['X_val_tensor'].shape}, y_val: {data_dict['y_val_tensor'].shape}"
     )
 
     return data_dict, scaler
 
 
 # =============================================================================
-# 3. FUNÇÕES DE TREINAMENTO
+# 3. TRAINING FUNCTIONS
 # =============================================================================
 
 
 def instantiate_model(params: dict, device):
-    """
-    Cria a instância do modelo (LSTM ou PLE) com base nos parâmetros.
-    """
+    """Instantiates an LSTM or PLE model based on the given parameter dict."""
     model_type = params["model_type"]
 
     if model_type == "LSTM":
-        model = CovidPredictorLSTM(
+        model = DenguePredictorLSTM(
             n_features=1,
             hidden_size=params["hidden_size"],
             n_layers=params["n_layers"],
             dropout=params.get("dropout", 0.0),
         ).to(device)
     elif model_type == "PLE":
-        model = CovidPredictorPLE(
+        model = DenguePredictorPLE(
             n_features=1,
             hidden_size=params["hidden_size"],
             num_experts=params["num_experts"],
@@ -234,14 +265,12 @@ def instantiate_model(params: dict, device):
             dropout=params.get("dropout", 0.0),
         ).to(device)
     else:
-        raise ValueError(f"Tipo de modelo desconhecido: {model_type}")
+        raise ValueError(f"Unknown model type: {model_type}")
     return model
 
 
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
-    """
-    Executa o loop de treinamento para uma época.
-    """
+    """Runs the training loop for a single epoch."""
     model.train()
     epoch_train_loss = 0.0
     num_batches = 0
@@ -261,11 +290,9 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
 
 def perform_validation(model, criterion, device, scaler, data_dict):
-    """
-    Executa a etapa de validação, incluindo cálculo de métricas (RMSE, R2, etc.).
-    """
+    """Runs the validation step and computes RMSE, MAE, MAPE, and R² metrics."""
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         X_train_tensor = data_dict["X_train_tensor"].to(device)
         y_train_tensor = data_dict["y_train_tensor"].to(device)
         X_val_tensor = data_dict["X_val_tensor"].to(device)
@@ -294,10 +321,8 @@ def perform_validation(model, criterion, device, scaler, data_dict):
 
 
 def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
-    """
-    Gera plots e salva todos os artefatos (modelo, scaler, plots) no MLflow.
-    """
-    print("\nGerando plots e salvando artefatos finais...")
+    """Generates diagnostic plots and logs all artifacts (model, scaler, plots) to MLflow."""
+    print("\nGenerating plots and saving final artifacts...")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     X_train_tensor = data_dict["X_train_tensor"].to(device)
@@ -306,7 +331,7 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
     y_val_true_final = data_dict["original_val_y"]
 
     model.eval()
-    with torch.no_grad():
+    with torch.inference_mode():
         final_train_pred = model(X_train_tensor).cpu().numpy().reshape(-1, 1)
         final_val_pred = model(X_val_tensor).cpu().numpy().reshape(-1, 1)
 
@@ -314,10 +339,10 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
     y_val_pred_final = scaler.inverse_transform(final_val_pred).flatten()
 
     print(
-        f"Estatísticas Finais (Val) - Min Pred: {y_val_pred_final.min():.2f}, Max Pred: {y_val_pred_final.max():.2f}"
+        f"Final stats (Val) — Pred min: {y_val_pred_final.min():.2f}, Pred max: {y_val_pred_final.max():.2f}"
     )
     print(
-        f"Estatísticas Finais (Val) - Min Real: {y_val_true_final.min():.2f}, Max Real: {y_val_true_final.max():.2f}"
+        f"Final stats (Val) — True min: {y_val_true_final.min():.2f}, True max: {y_val_true_final.max():.2f}"
     )
 
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -333,21 +358,21 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
         ax1.plot(
             sample_indices,
             y_train_true_final[sample_indices],
-            label="Real",
+            label="Actual",
             alpha=0.7,
             lw=1.5,
         )
         ax1.plot(
             sample_indices,
             y_train_pred_final[sample_indices],
-            label="Predição",
+            label="Prediction",
             linestyle="--",
             alpha=0.7,
             lw=1.5,
         )
-        ax1.set_title(f"Training Set: Previsões vs. Reais - {run_name}")
-        ax1.set_xlabel("Índice da Amostra")
-        ax1.set_ylabel("Casos Confirmados")
+        ax1.set_title(f"Training Set: Predictions vs. Actuals — {run_name}")
+        ax1.set_xlabel("Sample Index")
+        ax1.set_ylabel("Daily Cases")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
 
@@ -359,21 +384,21 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
         ax2.plot(
             sample_indices_val,
             y_val_true_final[sample_indices_val],
-            label="Real",
+            label="Actual",
             alpha=0.7,
             lw=1.5,
         )
         ax2.plot(
             sample_indices_val,
             y_val_pred_final[sample_indices_val],
-            label="Predição",
+            label="Prediction",
             linestyle="--",
             alpha=0.7,
             lw=1.5,
         )
-        ax2.set_title(f"Validation Set: Previsões vs. Reais - {run_name}")
-        ax2.set_xlabel("Índice da Amostra")
-        ax2.set_ylabel("Casos Confirmados")
+        ax2.set_title(f"Validation Set: Predictions vs. Actuals — {run_name}")
+        ax2.set_xlabel("Sample Index")
+        ax2.set_ylabel("Daily Cases")
         ax2.legend()
         ax2.grid(True, alpha=0.3)
 
@@ -397,10 +422,10 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
             [min_val, max_val],
             "r--",
             lw=2,
-            label="Predição Perfeita",
+            label="Perfect Prediction",
         )
-        ax1.set_xlabel("Valores Reais")
-        ax1.set_ylabel("Valores Preditos")
+        ax1.set_xlabel("Actual Values")
+        ax1.set_ylabel("Predicted Values")
         ax1.set_title("Training Set - Scatter Plot")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
@@ -419,10 +444,10 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
             [min_val_v, max_val_v],
             "r--",
             lw=2,
-            label="Predição Perfeita",
+            label="Perfect Prediction",
         )
-        ax2.set_xlabel("Valores Reais")
-        ax2.set_ylabel("Valores Preditos")
+        ax2.set_xlabel("Actual Values")
+        ax2.set_ylabel("Predicted Values")
         ax2.set_title("Validation Set - Scatter Plot")
         ax2.legend()
         ax2.grid(True, alpha=0.3)
@@ -439,14 +464,12 @@ def log_final_artifacts(model, scaler, run_name: str, data_dict: dict):
 
 
 # =============================================================================
-# 4. FUNÇÃO PRINCIPAL DE TREINAMENTO (Orquestradora)
+# 4. MAIN TRAINING FUNCTION
 # =============================================================================
 
 
 def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
-    """
-    Orquestra o treinamento de um único modelo (run do MLflow).
-    """
+    """Orchestrates training for a single MLflow run."""
 
     model_type = params["model_type"]
     if model_type == "LSTM":
@@ -462,7 +485,7 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
 
     with mlflow.start_run(run_name=run_name) as run:
         run_id = run.info.run_id
-        print(f"\n--- Iniciando nova Run ({model_type}): {run_name} ---")
+        print(f"\n--- Starting run ({model_type}): {run_name} ---")
 
         mlflow.log_input(dataset=dataset, context="training")
         mlflow.set_tags(
@@ -470,17 +493,17 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
                 "model_type": model_type,
                 "Optimizer": "Adam",
                 "run_purpose": "Grid Search Comparison",
-                "target_variable": "new_confirmed",
+                "target_variable": "daily_cases",
                 "feature_set": "v_univariate",
                 "developer": "leggen-assis",
-                "data_source_table": "casos_covid",
+                "data_source_table": "casos_dengue",
                 "data_source_filter": f"state='{state}'",
             }
         )
         mlflow.log_params(params)
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Usando device: {device}")
+        print(f"Using device: {device}")
 
         X_train_tensor = data_dict["X_train_tensor"].to(device)
         y_train_tensor = data_dict["y_train_tensor"].to(device)
@@ -499,7 +522,7 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
             optimizer, mode="min", factor=0.5, patience=10, verbose=False
         )
 
-        print("Iniciando o treinamento do modelo...")
+        print("Starting model training...")
         best_val_loss = float("inf")
         patience_counter = 0
         early_stopping_patience = 20
@@ -536,7 +559,7 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
                 patience_counter += 1
 
             if patience_counter >= early_stopping_patience:
-                print(f"Early stopping acionado na época {epoch + 1}")
+                print(f"Early stopping triggered at epoch {epoch + 1}.")
                 break
 
             if (epoch + 1) % 10 == 0:
@@ -548,26 +571,22 @@ def train_model(params: dict, state: str, data_dict: dict, scaler, dataset):
                     f"Val R2: {val_metrics['r2']:.3f}"
                 )
 
-        print("\nTreinamento concluído. Carregando melhor modelo...")
+        print("\nTraining complete. Loading best model state...")
         model.load_state_dict(best_model_state)
 
         log_final_artifacts(model, scaler, run_name, data_dict)
 
-        print(f"Modelo e artefatos salvos para a run: {run_id}")
+        print(f"Model and artifacts saved for run: {run_id}")
 
 
 # =============================================================================
-# 5. FUNÇÃO DE ORQUESTRAÇÃO GERAL
+# 5. EXPERIMENT ORCHESTRATION
 # =============================================================================
 
 
 def run_experiments(state: str):
-    """
-    Orquestra todo o processo de experimentação para um único estado.
-    """
-    print(
-        f"\n{'=' * 60}\nIniciando script de experimentação para o estado: {state}\n{'=' * 60}"
-    )
+    """Orchestrates the full grid-search experiment pipeline for a single state."""
+    print(f"\n{'=' * 60}\nStarting experiment for state: {state}\n{'=' * 60}")
 
     settings = experiments_settings(state)
 
@@ -576,17 +595,17 @@ def run_experiments(state: str):
         return
 
     mlflow_dataset = mlflow.data.from_pandas(
-        df, name=f"casos_covid_{state.lower()}_train"
+        df, name=f"casos_dengue_{state.lower()}_train"
     )
-    experiment_name = f"Covid Forecasting Comparison - {state}"
+    experiment_name = f"Dengue Forecasting Comparison - {state}"
     mlflow.set_experiment(experiment_name)
     mlflow.set_experiment_tags(settings["tags"])
 
-    print(f"\nIniciando Grid Search com {len(settings['param_grid'])} combinações...")
+    print(f"\nStarting grid search with {len(settings['param_grid'])} combinations...")
 
     for idx, params in enumerate(settings["param_grid"], 1):
         print(f"\n{'=' * 60}")
-        print(f"[{idx}/{len(settings['param_grid'])}] Testando combinação: {params}")
+        print(f"[{idx}/{len(settings['param_grid'])}] Testing combination: {params}")
         print(f"{'=' * 60}")
 
         data_dict, scaler = prepare_data_for_run(df, params["sequence_length"])
@@ -597,7 +616,7 @@ def run_experiments(state: str):
         train_model(params, state, data_dict, scaler, mlflow_dataset)
 
     print(f"\n{'=' * 60}")
-    print(f"Todos os experimentos para o estado {state} foram concluídos!")
+    print(f"All experiments for state {state} completed!")
     print(f"{'=' * 60}\n")
 
 
@@ -610,4 +629,4 @@ if __name__ == "__main__":
     for state_code in states_to_train:
         run_experiments(state=state_code)
 
-    print(f"\n{'=' * 60}\n Processo finalizado com sucesso!\n{'=' * 60}")
+    print(f"\n{'=' * 60}\n Process completed successfully!\n{'=' * 60}")

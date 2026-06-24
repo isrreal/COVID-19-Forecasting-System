@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from datetime import timedelta, datetime as dt
 from mlflow.tracking import MlflowClient
-from src.models.casos_covid import CasoCovid
+from src.models.caso_dengue import CasoDengue
 from sqlalchemy import select, func
 from scipy.stats import norm
 
@@ -20,10 +20,40 @@ client = MlflowClient()
 
 model_cache: dict[str, dict] = {}
 
+_STATE_IBGE_CODE: dict[str, int] = {
+    "RO": 11,
+    "AC": 12,
+    "AM": 13,
+    "RR": 14,
+    "PA": 15,
+    "AP": 16,
+    "TO": 17,
+    "MA": 21,
+    "PI": 22,
+    "CE": 23,
+    "RN": 24,
+    "PB": 25,
+    "PE": 26,
+    "AL": 27,
+    "SE": 28,
+    "BA": 29,
+    "MG": 31,
+    "ES": 32,
+    "RJ": 33,
+    "SP": 35,
+    "PR": 41,
+    "SC": 42,
+    "RS": 43,
+    "MS": 50,
+    "MT": 51,
+    "GO": 52,
+    "DF": 53,
+}
+
 
 def _get_best_run_id_for_state(state_code: str) -> tuple[str, int] | None:
     """Returns the run with the lowest validation RMSE for a given state."""
-    experiment_name = f"Covid Forecasting Comparison - {state_code}"
+    experiment_name = f"Dengue Forecasting Comparison - {state_code}"
     try:
         experiment = client.get_experiment_by_name(experiment_name)
         if not experiment:
@@ -130,9 +160,9 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict | None:
 
     sequence_np = np.array(sequence, dtype=np.float32).reshape(-1, 1)
     data_scaled = scaler.transform(sequence_np)
-    input_tensor = torch.from_numpy(data_scaled).float().view(1, seq_length, 1)
+    input_tensor = torch.from_numpy(data_scaled).float().unsqueeze(0)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         prediction_scaled = model(input_tensor).cpu().numpy()
 
     prediction_inversed = scaler.inverse_transform(prediction_scaled.reshape(-1, 1))
@@ -146,30 +176,24 @@ def get_prediction_for_state(state_code: str, sequence: list) -> dict | None:
 
 
 def _get_initial_sequence(
-    session, state_code: str, seq_length: int, city: str | None = None
+    session, state_code: str, seq_length: int, municipality_code: int | None = None
 ) -> tuple[list[float], dt] | None:
-    """
-    Fetches the initial data sequence from the database for the forecast loop.
+    """Fetches the most recent daily case counts to seed the autoregressive loop."""
+    ibge_code = _STATE_IBGE_CODE.get(state_code.upper())
+    if ibge_code is None:
+        return None
 
-    Fetches aggregated state data when city is None, or city-level data otherwise.
-    Uses descending order to ensure we get the most recent records before reversing.
-    """
-    query = (
-        select(
-            CasoCovid.datetime, func.sum(CasoCovid.new_confirmed).label("total_casos")
-        )
-        .where(CasoCovid.state == state_code)
-        .where(CasoCovid.new_confirmed >= 0)
-        .group_by(CasoCovid.city, CasoCovid.state)
-        .having(func.sum(CasoCovid.last_available_confirmed) > 0)
-    )
+    query = select(
+        CasoDengue.notification_date,
+        func.count().label("daily_cases"),
+    ).where(CasoDengue.state_ibge_code == ibge_code)
 
-    if city:
-        query = query.where(CasoCovid.city == city)
+    if municipality_code is not None:
+        query = query.where(CasoDengue.municipality_ibge_code == municipality_code)
 
     query = (
-        query.group_by(CasoCovid.datetime)
-        .order_by(CasoCovid.datetime.desc())
+        query.group_by(CasoDengue.notification_date)
+        .order_by(CasoDengue.notification_date.desc())
         .limit(seq_length)
     )
 
@@ -180,8 +204,8 @@ def _get_initial_sequence(
 
     result.reverse()
 
-    last_date = result[-1].datetime
-    initial_sequence_values = [r.total_casos for r in result]
+    last_date = dt.combine(result[-1].notification_date, dt.min.time())
+    initial_sequence_values = [float(r.daily_cases) for r in result]
 
     return initial_sequence_values, last_date
 
@@ -196,9 +220,9 @@ def _generate_autoregressive_forecast(
 
     forecast = []
     for i in range(days):
-        with torch.no_grad():
+        with torch.inference_mode():
             input_tensor = (
-                torch.from_numpy(current_sequence_scaled).float().view(1, seq_length, 1)
+                torch.from_numpy(current_sequence_scaled).float().unsqueeze(0)
             )
             pred_scaled = model(input_tensor).cpu().numpy()
 
@@ -230,7 +254,7 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
 
     with sync_engine.connect() as session:
         sequence_data = _get_initial_sequence(
-            session, state_code, seq_length, city=None
+            session, state_code, seq_length, municipality_code=None
         )
 
         if not sequence_data:
@@ -245,8 +269,10 @@ def get_forecast_for_entire_state(state_code: str, days: int) -> dict:
     return {"state": state_code, "model_run_id": run_id, "forecast": forecast}
 
 
-def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
-    """Returns a multi-step forecast for a specific city within a state."""
+def get_forecast_for_municipality(
+    state_code: str, municipality_code: int, days: int
+) -> dict:
+    """Returns a multi-step forecast for a specific municipality within a state."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
         return {"error": f"Model not found for {state_code}"}
@@ -256,11 +282,13 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
 
     with sync_engine.connect() as session:
         sequence_data = _get_initial_sequence(
-            session, state_code, seq_length, city=city
+            session, state_code, seq_length, municipality_code=municipality_code
         )
 
         if not sequence_data:
-            return {"error": f"Insufficient data for {city}, {state_code}."}
+            return {
+                "error": f"Insufficient data for municipality {municipality_code}, {state_code}."
+            }
 
         initial_sequence, last_date = sequence_data
 
@@ -270,14 +298,14 @@ def get_forecast_for_city(state_code: str, city: str, days: int) -> dict:
 
     return {
         "state": state_code,
-        "city": city,
+        "municipality_code": municipality_code,
         "model_run_id": run_id,
         "forecast": forecast,
     }
 
 
 def get_forecast_for_state(state_code: str, days: int) -> dict:
-    """Returns multi-step forecasts for all cities within a state."""
+    """Returns multi-step forecasts for all municipalities within a state."""
     artifacts = _load_model_from_mlflow(state_code)
     if not artifacts:
         return {"error": f"Model not found for {state_code}"}
@@ -285,34 +313,49 @@ def get_forecast_for_state(state_code: str, days: int) -> dict:
     model, scaler = artifacts["model"], artifacts["scaler"]
     seq_length, run_id = artifacts["seq_length"], artifacts["run_id"]
 
-    forecasts_by_city = {}
+    ibge_code = _STATE_IBGE_CODE.get(state_code.upper())
+    if ibge_code is None:
+        return {"error": f"Unknown state abbreviation: {state_code}"}
+
+    forecasts_by_municipality = {}
     with sync_engine.connect() as session:
-        cities_query = (
-            select(CasoCovid.city).where(CasoCovid.state == state_code).distinct()
+        municipalities_query = (
+            select(CasoDengue.municipality_ibge_code)
+            .where(CasoDengue.state_ibge_code == ibge_code)
+            .distinct()
         )
-        cities = [r.city for r in session.execute(cities_query).all()]
+        municipalities = [
+            r.municipality_ibge_code
+            for r in session.execute(municipalities_query).all()
+        ]
 
-        if not cities:
-            return {"error": f"No cities found for {state_code}"}
+        if not municipalities:
+            return {"error": f"No municipalities found for {state_code}"}
 
-        for city in cities:
+        for municipality_code in municipalities:
             sequence_data = _get_initial_sequence(
-                session, state_code, seq_length, city=city
+                session, state_code, seq_length, municipality_code=municipality_code
             )
 
             if not sequence_data:
-                print(f"WARNING: Insufficient data for {city} (required: {seq_length})")
+                print(
+                    f"WARNING: Insufficient data for municipality {municipality_code} (required: {seq_length})"
+                )
                 continue
 
             initial_sequence, last_date = sequence_data
 
-            city_forecast = _generate_autoregressive_forecast(
+            municipality_forecast = _generate_autoregressive_forecast(
                 model, scaler, initial_sequence, seq_length, days, last_date
             )
 
-            forecasts_by_city[str(city)] = city_forecast
+            forecasts_by_municipality[str(municipality_code)] = municipality_forecast
 
-    return {"state": state_code, "model_run_id": run_id, "forecasts": forecasts_by_city}
+    return {
+        "state": state_code,
+        "model_run_id": run_id,
+        "forecasts": forecasts_by_municipality,
+    }
 
 
 def get_forecast_with_confidence(
