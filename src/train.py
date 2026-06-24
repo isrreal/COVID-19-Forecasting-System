@@ -13,7 +13,7 @@ import joblib
 import matplotlib.pyplot as plt
 from sqlalchemy import select
 from database import sync_engine
-from src.models.neural_networks import CovidPredictorLSTM, CovidPredictorPLE
+from src.models.neural_networks import DenguePredictorLSTM, DenguePredictorPLE
 from src.models.casos_covid import CasoCovid
 
 # =============================================================================
@@ -219,14 +219,14 @@ def instantiate_model(params: dict, device):
     model_type = params["model_type"]
 
     if model_type == "LSTM":
-        model = CovidPredictorLSTM(
+        model = DenguePredictorLSTM(
             n_features=1,
             hidden_size=params["hidden_size"],
             n_layers=params["n_layers"],
             dropout=params.get("dropout", 0.0),
         ).to(device)
     elif model_type == "PLE":
-        model = CovidPredictorPLE(
+        model = DenguePredictorPLE(
             n_features=1,
             hidden_size=params["hidden_size"],
             num_experts=params["num_experts"],

@@ -3,9 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class CovidPredictorLSTM(nn.Module):
+class DenguePredictorLSTM(nn.Module):
     def __init__(self, n_features, hidden_size, n_layers, dropout=0.2):
-        super(CovidPredictorLSTM, self).__init__()
+        super(DenguePredictorLSTM, self).__init__()
         self.lstm = nn.LSTM(
             input_size=n_features,
             hidden_size=hidden_size,
@@ -31,7 +31,7 @@ class GatingNetwork(nn.Module):
         return F.softmax(self.gate(x), dim=-1)
 
 
-class CovidPredictorPLE(nn.Module):
+class DenguePredictorPLE(nn.Module):
     def __init__(
         self, n_features, hidden_size, num_layers=2, num_experts=3, dropout=0.2
     ):
