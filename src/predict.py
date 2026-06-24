@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import joblib
 import mlflow
@@ -31,7 +32,7 @@ def predict_next_day(run_id: str, state: str = STATE) -> float | None:
     try:
         client = MlflowClient()
         local_scaler_dir = client.download_artifacts(run_id, "preprocessor", "/tmp")
-        scaler_path = os.path.join(local_scaler_dir, "scaler.pkl")
+        scaler_path = Path(local_scaler_dir) / "scaler.pkl"
         scaler = joblib.load(scaler_path)
         print(f"Scaler loaded from: {scaler_path}")
     except Exception as e:
