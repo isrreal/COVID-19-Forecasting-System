@@ -125,9 +125,13 @@ services:
     volumes:
       - .:/app
       - mlflow_artifacts:/mlflow/artifacts
+    env_file:
+      - .env
     environment:
       JUPYTER_ENABLE_LAB: "yes"
       PYTHONPATH: /app
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/dengue_db"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       - mlflow
     command: >
